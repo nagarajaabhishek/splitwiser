@@ -35,7 +35,11 @@ function toggleEqual(assignment: ItemAssignment, memberId: string): ItemAssignme
   };
 }
 
-function setMode(assignment: ItemAssignment, mode: "single" | "equal" | "custom", members: Member[]): ItemAssignment {
+function setMode(
+  assignment: ItemAssignment,
+  mode: "single" | "equal" | "custom" | "percentage" | "shares" | "exact",
+  members: Member[],
+): ItemAssignment {
   if (mode === "single") {
     return updateSingle(assignment, assignment.memberIds[0] ?? members[0].id);
   }
@@ -48,11 +52,20 @@ function setMode(assignment: ItemAssignment, mode: "single" | "equal" | "custom"
       memberWeights: ids.map((id) => ({ memberId: id, weight: 100 / ids.length })),
     };
   }
+  if (mode === "exact") {
+    const ids = assignment.memberIds.length > 0 ? assignment.memberIds : members.map((member) => member.id);
+    return {
+      ...assignment,
+      mode,
+      memberIds: ids,
+      memberWeights: ids.map((id) => ({ memberId: id, weight: 0 })),
+    };
+  }
   const ids = assignment.memberIds.length > 0 ? assignment.memberIds : members.map((member) => member.id);
   const evenWeight = Number((100 / ids.length).toFixed(2));
   return {
     ...assignment,
-    mode,
+      mode,
     memberIds: ids,
     memberWeights: ids.map((id) => ({ memberId: id, weight: evenWeight })),
   };
@@ -105,7 +118,7 @@ export function SplitAssignment({
   return (
     <section className="glass-card">
       <h2>Assign Items</h2>
-      <p className="muted">Select split mode per item: single, equal, or custom percentage.</p>
+      <p className="muted">Select split mode per item: single, equal, percentage, shares, exact amount, or custom.</p>
       <p className="muted" style={{ marginTop: "0.45rem" }}>
         Tax split by subtotal share, then cent reconciliation to exactly match bill total.
       </p>
@@ -115,7 +128,8 @@ export function SplitAssignment({
           if (!assignment) return null;
           const breakdown = itemBreakdown(draft, item.id, members, assignments);
           const proposal = proposals.find((entry) => entry.itemId === item.id);
-          const unresolved = proposal?.needsReview && !confirmedReviewItemIds.includes(item.id);
+          const confirmed = confirmedReviewItemIds.includes(item.id);
+          const unresolved = proposal?.needsReview && !confirmed;
           return (
             <article key={item.id} className="item-row">
               <div className="item-left">
@@ -135,9 +149,11 @@ export function SplitAssignment({
               </div>
               <div className="item-right">
                 <details className="collapsible">
-                  <summary>Edit split details</summary>
+                  <summary>
+                    <span className="summary-action">{`Edit split details ${assignment.mode ? `(${assignment.mode})` : ""}`}</span>
+                  </summary>
                   <div className="chip-row" style={{ marginTop: "0.45rem" }}>
-                    {(["single", "equal", "custom"] as const).map((mode) => (
+                    {(["single", "equal", "percentage", "shares", "exact", "custom"] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"
@@ -159,7 +175,7 @@ export function SplitAssignment({
                       <button
                         key={member.id}
                         type="button"
-                        className={assignment.memberIds.includes(member.id) ? "chip chip-active" : "chip"}
+                        className={assignment.memberIds.includes(member.id) ? "chip chip-active member-chip" : "chip member-chip"}
                         onClick={() =>
                           onChangeAssignments(
                             assignments.map((entry) => {
@@ -182,24 +198,37 @@ export function SplitAssignment({
                     ))}
                   </div>
 
-                  {(assignment.mode ?? "single") === "custom" ? (
+                  {(assignment.mode ?? "single") === "custom" ||
+                  (assignment.mode ?? "single") === "percentage" ||
+                  (assignment.mode ?? "single") === "shares" ||
+                  (assignment.mode ?? "single") === "exact" ? (
                     <div className="custom-grid">
                       {members
                         .filter((member) => assignment.memberIds.includes(member.id))
                         .map((member) => (
                           <label key={member.id} className="weight-input">
-                            <span>{member.name} %</span>
+                            <span>{member.name} {(assignment.mode ?? "single") === "exact" ? "$" : "%"}</span>
                             <input
                               type="number"
                               min={0}
-                              max={100}
+                              max={(assignment.mode ?? "single") === "exact" ? 1000000 : 100}
                               step={0.5}
-                              value={assignment.memberWeights?.find((entry) => entry.memberId === member.id)?.weight ?? 0}
+                              value={
+                                (assignment.mode ?? "single") === "exact"
+                                  ? ((assignment.memberWeights?.find((entry) => entry.memberId === member.id)?.weight ?? 0) / 100).toFixed(2)
+                                  : (assignment.memberWeights?.find((entry) => entry.memberId === member.id)?.weight ?? 0)
+                              }
                               onChange={(event) =>
                                 onChangeAssignments(
                                   assignments.map((entry) =>
                                     entry.itemId === item.id
-                                      ? setCustomWeight(entry, member.id, Number(event.target.value))
+                                      ? setCustomWeight(
+                                          entry,
+                                          member.id,
+                                          (entry.mode ?? "single") === "exact"
+                                            ? Math.round((Number(event.target.value) || 0) * 100)
+                                            : Number(event.target.value),
+                                        )
                                       : entry,
                                   ),
                                 )
@@ -219,14 +248,14 @@ export function SplitAssignment({
                     })
                     .join(" | ")}
                 </p>
-                {unresolved ? (
+                {proposal?.needsReview ? (
                   <button
                     type="button"
-                    className="chip chip-active"
+                    className={unresolved ? "chip chip-active review-toggle" : "chip review-toggle"}
                     style={{ marginTop: "0.4rem" }}
                     onClick={() => onConfirmReviewItem(item.id)}
                   >
-                    Mark Reviewed
+                    {unresolved ? "Mark Reviewed" : "Reviewed (Undo)"}
                   </button>
                 ) : null}
               </div>

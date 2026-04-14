@@ -5,6 +5,7 @@ import { computeSettlements } from "@/lib/engine/settlement";
 import type { ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
 import { listLearnedDefaults, upsertLearnedDefaults } from "@/lib/db/learned-defaults";
 import { randomBytes } from "node:crypto";
+import { logActivity } from "@/lib/db/activity";
 
 function pickPrimaryAssignee(assignment: ItemAssignment | undefined): string | null {
   if (!assignment || assignment.memberIds.length === 0) return null;
@@ -63,6 +64,7 @@ export async function createFinalizedBill(params: {
         subtotalCents: draft.subtotalCents,
         taxCents: draft.taxCents,
         totalCents: draft.totalCents,
+        currency: draft.currency,
         status: "finalized",
         billItems: {
           deleteMany: {},
@@ -88,6 +90,7 @@ export async function createFinalizedBill(params: {
         subtotalCents: draft.subtotalCents,
         taxCents: draft.taxCents,
         totalCents: draft.totalCents,
+        currency: draft.currency,
         status: "finalized",
         billItems: {
           create: createItems,
@@ -105,12 +108,20 @@ export async function createFinalizedBill(params: {
   }
 
   await upsertLearnedDefaults(agentResult.learnedDefaultsUpserts);
+  await logActivity({
+    householdId,
+    billId: bill.id,
+    type: "expense_finalized",
+    message: `Finalized expense ${bill.merchantName} for $${(bill.totalCents / 100).toFixed(2)}`,
+    metadata: { transactionCount: bill.transactions.length },
+  });
 
   return {
     id: bill.id,
     merchantName: bill.merchantName,
     totalCents: bill.totalCents,
     billDate: bill.billDate.toISOString(),
+    currency: bill.currency,
   };
 }
 
@@ -144,6 +155,7 @@ export async function createSplitLaterBill(params: {
       subtotalCents: draft.subtotalCents,
       taxCents: draft.taxCents,
       totalCents: draft.totalCents,
+      currency: draft.currency,
       status: "split_later",
       billItems: {
         create: draft.items.map((item) => ({
@@ -157,6 +169,12 @@ export async function createSplitLaterBill(params: {
       },
     },
   });
+  await logActivity({
+    householdId,
+    billId: bill.id,
+    type: "expense_split_later",
+    message: `Saved split-later draft for ${bill.merchantName}`,
+  });
 
   return {
     id: bill.id,
@@ -164,6 +182,7 @@ export async function createSplitLaterBill(params: {
     totalCents: bill.totalCents,
     billDate: bill.billDate.toISOString(),
     status: bill.status,
+    currency: bill.currency,
   };
 }
 
@@ -185,6 +204,7 @@ export async function loadSplitLaterBillForResume(billId: string) {
   const draft: NormalizedBillDraft = {
     merchantName: bill.merchantName,
     billDate: bill.billDate.toISOString(),
+    currency: bill.currency,
     subtotalCents: bill.subtotalCents,
     taxCents: bill.taxCents,
     totalCents: bill.totalCents,
@@ -244,6 +264,7 @@ export async function listBillHistory(householdId: string) {
     billDate: bill.billDate.toISOString(),
     totalCents: bill.totalCents,
     status: bill.status,
+    currency: bill.currency,
     memberBreakdown: bill.transactions.map((transaction) => ({
       memberId: transaction.memberId,
       memberName: transaction.member.name,
@@ -281,6 +302,9 @@ export async function getBillDetail(billId: string) {
     taxCents: bill.taxCents,
     totalCents: bill.totalCents,
     status: bill.status,
+    currency: bill.currency,
+    category: bill.category,
+    note: bill.note,
     items: bill.billItems.map((item) => ({
       id: item.id,
       label: item.label,
@@ -356,6 +380,9 @@ export async function getSharedBillDetail(shareToken: string) {
     taxCents: bill.taxCents,
     totalCents: bill.totalCents,
     status: bill.status,
+    currency: bill.currency,
+    category: bill.category,
+    note: bill.note,
     items: bill.billItems.map((item) => ({
       id: item.id,
       label: item.label,

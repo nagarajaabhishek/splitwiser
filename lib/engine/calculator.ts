@@ -82,6 +82,42 @@ function splitLineCustom(lineTotalCents: number, memberWeights: Array<{ memberId
   return allocation;
 }
 
+function splitLineExact(lineTotalCents: number, memberWeights: Array<{ memberId: string; weight: number }>) {
+  const allocation = new Map<string, number>();
+  if (memberWeights.length === 0) return allocation;
+  const floored = memberWeights.map((entry) => ({
+    memberId: entry.memberId,
+    cents: Math.max(0, Math.floor(entry.weight)),
+    remainder: Math.max(0, entry.weight) - Math.floor(Math.max(0, entry.weight)),
+  }));
+  let assigned = floored.reduce((sum, entry) => sum + entry.cents, 0);
+  if (assigned > lineTotalCents) {
+    let over = assigned - lineTotalCents;
+    floored.sort((a, b) => b.cents - a.cents);
+    for (const entry of floored) {
+      if (over <= 0) break;
+      const delta = Math.min(entry.cents, over);
+      entry.cents -= delta;
+      over -= delta;
+    }
+  } else if (assigned < lineTotalCents) {
+    let remaining = lineTotalCents - assigned;
+    floored.sort((a, b) => b.remainder - a.remainder);
+    let cursor = 0;
+    while (remaining > 0) {
+      floored[cursor % floored.length].cents += 1;
+      remaining -= 1;
+      cursor += 1;
+    }
+  }
+  assigned = floored.reduce((sum, entry) => sum + entry.cents, 0);
+  if (assigned !== lineTotalCents && floored.length > 0) {
+    floored[0].cents += lineTotalCents - assigned;
+  }
+  for (const entry of floored) allocation.set(entry.memberId, entry.cents);
+  return allocation;
+}
+
 export function calculateMemberTotals(params: {
   items: NormalizedBillItem[];
   assignments: ItemAssignment[];
@@ -103,11 +139,16 @@ export function calculateMemberTotals(params: {
     let lineSplit = splitLineAcrossMembers(item.lineTotalCents, memberIds);
     if (mode === "single") {
       lineSplit = splitLineAcrossMembers(item.lineTotalCents, [memberIds[0]]);
-    } else if (mode === "custom") {
+    } else if (mode === "custom" || mode === "percentage" || mode === "shares") {
       const weights =
         assignment?.memberWeights?.filter((entry) => memberIds.includes(entry.memberId)) ??
         memberIds.map((memberId) => ({ memberId, weight: 1 }));
       lineSplit = splitLineCustom(item.lineTotalCents, weights);
+    } else if (mode === "exact") {
+      const exact =
+        assignment?.memberWeights?.filter((entry) => memberIds.includes(entry.memberId)) ??
+        memberIds.map((memberId) => ({ memberId, weight: 0 }));
+      lineSplit = splitLineExact(item.lineTotalCents, exact);
     } else {
       lineSplit = splitLineAcrossMembers(item.lineTotalCents, memberIds);
     }

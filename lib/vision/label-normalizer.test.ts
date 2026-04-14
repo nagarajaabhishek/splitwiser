@@ -15,6 +15,7 @@ test("normalizeDraftLabels applies heuristics when AI disabled", async () => {
   const draft: NormalizedBillDraft = {
     merchantName: "Demo",
     billDate: new Date().toISOString(),
+    currency: "USD",
     subtotalCents: 500,
     taxCents: 50,
     totalCents: 550,

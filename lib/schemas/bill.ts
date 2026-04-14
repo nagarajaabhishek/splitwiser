@@ -12,6 +12,7 @@ export const normalizedBillItemSchema = z.object({
 export const normalizedBillDraftSchema = z.object({
   merchantName: z.string().min(1),
   billDate: z.string().datetime(),
+  currency: z.string().length(3).default("USD"),
   subtotalCents: z.number().int().nonnegative(),
   taxCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
@@ -39,6 +40,38 @@ export const billUploadResponseSchema = z.object({
   draft: normalizedBillDraftSchema,
 });
 
+export const billUploadBatchResultSchema = z.object({
+  fileName: z.string(),
+  source: z.string(),
+  draft: normalizedBillDraftSchema,
+  diagnostics: z
+    .object({
+      providerUsed: z.string(),
+      fallbackReason: z.string().optional(),
+      labelNormalization: z
+        .object({
+          providerUsed: z.string(),
+          usedAI: z.boolean(),
+          replacedCount: z.number().int().nonnegative(),
+          confidenceThreshold: z.number(),
+          fallbackReason: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+export const billUploadBatchFailureSchema = z.object({
+  fileName: z.string(),
+  code: z.string(),
+  error: z.string(),
+});
+
+export const billUploadBatchResponseSchema = z.object({
+  successes: z.array(billUploadBatchResultSchema),
+  failures: z.array(billUploadBatchFailureSchema),
+});
+
 export const memberSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
@@ -50,7 +83,7 @@ export const memberSchema = z.object({
 export const itemAssignmentSchema = z.object({
   itemId: z.string(),
   memberIds: z.array(z.string()).min(1),
-  mode: z.enum(["single", "equal", "custom"]).default("single"),
+  mode: z.enum(["single", "equal", "custom", "exact", "percentage", "shares"]).default("single"),
   memberWeights: z
     .array(
       z.object({
@@ -59,12 +92,13 @@ export const itemAssignmentSchema = z.object({
       }),
     )
     .optional(),
+  payerMemberIds: z.array(z.string()).optional(),
 });
 
 export const assignmentProposalSchema = z.object({
   itemId: z.string(),
   suggestedMemberIds: z.array(z.string()),
-  mode: z.enum(["single", "equal", "custom"]).default("single"),
+  mode: z.enum(["single", "equal", "custom", "exact", "percentage", "shares"]).default("single"),
   memberWeights: z
     .array(
       z.object({
@@ -82,6 +116,7 @@ export const assignmentProposalSchema = z.object({
 export type NormalizedBillItem = z.infer<typeof normalizedBillItemSchema>;
 export type NormalizedBillDraft = z.infer<typeof normalizedBillDraftSchema>;
 export type BillUploadResponse = z.infer<typeof billUploadResponseSchema>;
+export type BillUploadBatchResponse = z.infer<typeof billUploadBatchResponseSchema>;
 export type Member = z.infer<typeof memberSchema>;
 export type ItemAssignment = z.infer<typeof itemAssignmentSchema>;
 export type AssignmentProposal = z.infer<typeof assignmentProposalSchema>;

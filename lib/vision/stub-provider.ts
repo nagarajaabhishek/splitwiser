@@ -15,6 +15,7 @@ function buildDraft(merchantName: string, rawItems: Array<{ label: string; cents
   return {
     merchantName,
     billDate: new Date().toISOString(),
+    currency: "USD",
     subtotalCents,
     taxCents,
     totalCents: subtotalCents + taxCents,

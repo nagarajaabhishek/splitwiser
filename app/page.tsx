@@ -1,13 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { BillUpload } from "@/components/BillUpload";
-import { SplitAssignment } from "@/components/SplitAssignment";
+import { useRouter } from "next/navigation";
 import { GroupSwitcher } from "@/components/GroupSwitcher";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
-import { normalizeLabel, runSplitAgent, type LearnedDefaultRecord } from "@/lib/engine/agent";
-import type { AssignmentProposal, BillUploadResponse, ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
+import type { Member } from "@/lib/schemas/bill";
 
 type HistoryBill = {
   id: string;
@@ -24,46 +22,41 @@ type GroupType = {
   members: Member[];
 };
 
+type Ledger = {
+  currency: string;
+  balances: Array<{ memberId: string; memberName: string; balanceCents: number }>;
+  settlements: Array<{ fromMemberId: string; fromMemberName: string; toMemberId: string; toMemberName: string; amountCents: number }>;
+};
+
+type ActivityEntry = {
+  id: string;
+  message: string;
+  type: string;
+  createdAt: string;
+};
+
+type Analytics = {
+  budget: { monthlyBudgetCents: number | null; defaultCurrency: string };
+  totals: { finalizedBills: number; totalSpendCents: number };
+  spendByMonth: Array<{ month: string; totalCents: number }>;
+  spendByCategory: Array<{ category: string; totalCents: number }>;
+};
+
 export default function Home() {
+  const router = useRouter();
   const [groups, setGroups] = useState<GroupType[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [draft, setDraft] = useState<NormalizedBillDraft | null>(null);
-  const [assignments, setAssignments] = useState<ItemAssignment[]>([]);
-  const [learnedDefaults, setLearnedDefaults] = useState<LearnedDefaultRecord[]>([]);
-  const [persistStatus, setPersistStatus] = useState<string>("");
-  const [members, setMembers] = useState<Member[]>([]);
   const [householdId, setHouseholdId] = useState<string>("");
   const [history, setHistory] = useState<HistoryBill[]>([]);
-  const [proposals, setProposals] = useState<AssignmentProposal[]>([]);
-  const [confirmedReviewItemIds, setConfirmedReviewItemIds] = useState<string[]>([]);
-  const [allowOverride, setAllowOverride] = useState(false);
-  const [idempotencyKey, setIdempotencyKey] = useState("");
-  const [splitLaterBillId, setSplitLaterBillId] = useState<string | null>(null);
   const [groupMessage, setGroupMessage] = useState("");
-  const [agentObservability, setAgentObservability] = useState<{
-    providerUsed: string;
-    fallbackReason?: string;
-    confidenceThreshold: number;
-    unresolvedCount: number;
-  } | null>(null);
-
-  const result = useMemo(() => {
-    if (!draft || members.length === 0) return null;
-    return runSplitAgent({
-      draft,
-      members,
-      learnedDefaults,
-      manualAssignments: assignments,
-    });
-  }, [assignments, draft, learnedDefaults, members]);
-
-  const flowStep = useMemo(() => {
-    if (!activeGroupId) return 1;
-    if (!draft) return 2;
-    if (!result) return 3;
-    return 4;
-  }, [activeGroupId, draft, result]);
+  const [ledger, setLedger] = useState<Ledger | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [payments, setPayments] = useState<Array<{ id: string; fromMember: { id: string; name: string }; toMember: { id: string; name: string }; amountCents: number; method: string; paidAt: string }>>([]);
+  const [paymentForm, setPaymentForm] = useState({ fromMemberId: "", toMemberId: "", amount: "", method: "other" });
+  const [recurringForm, setRecurringForm] = useState({ title: "", amount: "", cadence: "monthly", category: "" });
+  const [recurring, setRecurring] = useState<Array<{ id: string; title: string; amountCents: number; cadence: string; nextRunAt: string }>>([]);
 
   const loadBootstrap = useCallback(async (groupId?: string) => {
     const params = groupId ? `?activeGroupId=${groupId}` : "";
@@ -72,7 +65,6 @@ export default function Home() {
     setGroups(json.groups ?? []);
     setShowOnboarding(Boolean(json.needsOnboarding));
     setActiveGroupId(json.activeGroupId ?? null);
-    setMembers(json.members ?? []);
     setHouseholdId(json.activeGroupId ?? "");
   }, []);
 
@@ -84,18 +76,6 @@ export default function Home() {
   }, [loadBootstrap]);
 
   useEffect(() => {
-    const fetchDefaults = async () => {
-      if (members.length === 0) return;
-      const params = new URLSearchParams();
-      members.forEach((member) => params.append("memberId", member.id));
-      const response = await fetch(`/api/learned-defaults?${params.toString()}`);
-      const json = await response.json();
-      setLearnedDefaults(json.entries ?? []);
-    };
-    void fetchDefaults();
-  }, [members]);
-
-  useEffect(() => {
     const fetchHistory = async () => {
       if (!householdId) return;
       const response = await fetch(`/api/bills/history?householdId=${householdId}`);
@@ -105,155 +85,34 @@ export default function Home() {
     void fetchHistory();
   }, [householdId]);
 
-  const handleParsed = (response: BillUploadResponse) => {
-    setPersistStatus("");
-    setIdempotencyKey(`fin-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
-    setSplitLaterBillId(null);
-    setDraft(response.draft);
-    setConfirmedReviewItemIds([]);
-    const fetchSuggestions = async () => {
-      const suggestResponse = await fetch("/api/agent/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft: response.draft, members }),
-      });
-      if (!suggestResponse.ok) {
-        const fallback = runSplitAgent({ draft: response.draft, members, learnedDefaults });
-        setAssignments(fallback.assignments);
-        setProposals(fallback.proposals);
-        return;
-      }
-      const json = await suggestResponse.json();
-      setAssignments(json.assignments ?? []);
-      setProposals(json.proposals ?? []);
-      setAgentObservability(json.observability ?? null);
+  useEffect(() => {
+    const fetchLedgerData = async () => {
+      if (!householdId) return;
+      const [ledgerRes, activityRes, analyticsRes, paymentsRes, recurringRes] = await Promise.all([
+        fetch(`/api/ledger/${householdId}`),
+        fetch(`/api/activity/${householdId}`),
+        fetch(`/api/analytics/${householdId}`),
+        fetch(`/api/payments?householdId=${householdId}`),
+        fetch(`/api/recurring?householdId=${householdId}`),
+      ]);
+      const ledgerJson = await ledgerRes.json();
+      const activityJson = await activityRes.json();
+      const analyticsJson = await analyticsRes.json();
+      const paymentsJson = await paymentsRes.json();
+      const recurringJson = await recurringRes.json();
+      setLedger(ledgerJson.ledger ?? null);
+      setActivity(activityJson.entries ?? []);
+      setAnalytics(analyticsJson.analytics ?? null);
+      setPayments(paymentsJson.payments ?? []);
+      setRecurring(recurringJson.recurringExpenses ?? []);
     };
-    void fetchSuggestions();
-  };
-
-  const updateDraftItem = (itemId: string, key: "label" | "lineTotalCents", value: string) => {
-    if (!draft) return;
-    const nextItems = draft.items.map((item) => {
-      if (item.id !== itemId) return item;
-      if (key === "label") {
-        return {
-          ...item,
-          label: value,
-          normalizedLabel: normalizeLabel(value || "item"),
-        };
-      }
-      const cents = Math.max(0, Math.round((Number(value) || 0) * 100));
-      return {
-        ...item,
-        unitPriceCents: cents,
-        lineTotalCents: cents,
-      };
-    });
-    const subtotalCents = nextItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
-    setDraft({
-      ...draft,
-      items: nextItems,
-      subtotalCents,
-      totalCents: subtotalCents + draft.taxCents,
-    });
-  };
-
-  const updateDraftTop = (field: "merchantName" | "billDate" | "taxCents", value: string) => {
-    if (!draft) return;
-    if (field === "taxCents") {
-      const taxCents = Math.max(0, Math.round((Number(value) || 0) * 100));
-      setDraft({
-        ...draft,
-        taxCents,
-        totalCents: draft.subtotalCents + taxCents,
-      });
-      return;
-    }
-    setDraft({ ...draft, [field]: value });
-  };
-
-  const persistDefaults = async () => {
-    if (!result || !draft || !householdId || members.length === 0) return;
-    const unresolved = proposals
-      .filter((proposal) => proposal.needsReview && !confirmedReviewItemIds.includes(proposal.itemId))
-      .map((proposal) => proposal.itemId);
-    if (unresolved.length > 0 && !allowOverride) {
-      setPersistStatus("Review required items before finalizing, or allow override.");
-      return;
-    }
-    const response = await fetch("/api/bills/finalize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        householdId,
-        sourceBillId: splitLaterBillId ?? undefined,
-        draft,
-        assignments,
-        members,
-        confirmedReviewItemIds,
-        allowOverride,
-        idempotencyKey,
-      }),
-    });
-    if (!response.ok) {
-      setPersistStatus("Could not finalize bill.");
-      return;
-    }
-    setPersistStatus("Bill finalized and defaults learned.");
-    setSplitLaterBillId(null);
-    const historyResponse = await fetch(`/api/bills/history?householdId=${householdId}`);
-    const historyJson = await historyResponse.json();
-    setHistory(historyJson.bills ?? []);
-  };
-
-  const saveSplitLater = async () => {
-    if (!draft || !householdId) return;
-    const response = await fetch("/api/bills/split-later", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        householdId,
-        draft,
-        assignments,
-      }),
-    });
-    const json = await response.json();
-    if (!response.ok) {
-      setPersistStatus(json.error ?? "Could not save for later.");
-      return;
-    }
-    setPersistStatus("Saved as Split Later. Reopen from bill history.");
-    setSplitLaterBillId(json.bill?.id ?? null);
-    const historyResponse = await fetch(`/api/bills/history?householdId=${householdId}`);
-    const historyJson = await historyResponse.json();
-    setHistory(historyJson.bills ?? []);
-  };
-
-  const reopenSplitLater = async (billId: string) => {
-    const response = await fetch(`/api/bills/${billId}/split-later`);
-    const json = await response.json();
-    if (!response.ok) {
-      setPersistStatus(json.error ?? "Could not reopen split-later bill.");
-      return;
-    }
-    setDraft(json.draft ?? null);
-    setMembers(json.members ?? members);
-    setAssignments(json.assignments ?? []);
-    setProposals(json.proposals ?? []);
-    setConfirmedReviewItemIds([]);
-    setAgentObservability(json.observability ?? null);
-    setSplitLaterBillId(billId);
-    setPersistStatus("Split-later bill reopened. Confirm unresolved items before finalizing.");
-  };
+    void fetchLedgerData();
+  }, [householdId, history.length]);
 
   const createGroupHandler = (group: { id: string }) => {
     void loadBootstrap(group.id);
     setShowOnboarding(false);
-    setDraft(null);
-    setAssignments([]);
-    setProposals([]);
     setHistory([]);
-    setPersistStatus("");
     setGroupMessage("Group created.");
   };
 
@@ -280,11 +139,29 @@ export default function Home() {
       return;
     }
     await loadBootstrap();
-    setDraft(null);
-    setAssignments([]);
-    setProposals([]);
     setGroupMessage("Group deleted.");
   };
+
+  const refreshFinancialData = useCallback(async () => {
+    if (!householdId) return;
+    const [ledgerRes, activityRes, analyticsRes, paymentsRes, recurringRes] = await Promise.all([
+      fetch(`/api/ledger/${householdId}`),
+      fetch(`/api/activity/${householdId}`),
+      fetch(`/api/analytics/${householdId}`),
+      fetch(`/api/payments?householdId=${householdId}`),
+      fetch(`/api/recurring?householdId=${householdId}`),
+    ]);
+    const ledgerJson = await ledgerRes.json();
+    const activityJson = await activityRes.json();
+    const analyticsJson = await analyticsRes.json();
+    const paymentsJson = await paymentsRes.json();
+    const recurringJson = await recurringRes.json();
+    setLedger(ledgerJson.ledger ?? null);
+    setActivity(activityJson.entries ?? []);
+    setAnalytics(analyticsJson.analytics ?? null);
+    setPayments(paymentsJson.payments ?? []);
+    setRecurring(recurringJson.recurringExpenses ?? []);
+  }, [householdId]);
 
   return (
     <main className="shell">
@@ -295,17 +172,7 @@ export default function Home() {
       </section>
       <section className="hero">
         <h1>Splitwiser AI</h1>
-        <p>Upload receipts, assign items, and reconcile every member total down to the cent.</p>
-      </section>
-      <section className="glass-card flow-card">
-        <h2>Guided Flow</h2>
-        <div className="flow-steps">
-          {["Select Group", "Upload & Parse", "Review Draft", "Assign & Confirm", "Finalize"].map((step, index) => (
-            <span key={step} className={index + 1 <= flowStep ? "status-badge status-badge-ok" : "status-badge"}>
-              {index + 1}. {step}
-            </span>
-          ))}
-        </div>
+        <p>Use the new guided wizard to parse, review, split, and finalize bills.</p>
       </section>
 
       {showOnboarding ? (
@@ -319,10 +186,6 @@ export default function Home() {
           activeGroupId={activeGroupId}
           onSelect={(groupId) => {
             void loadBootstrap(groupId);
-            setDraft(null);
-            setAssignments([]);
-            setProposals([]);
-            setPersistStatus("");
             setGroupMessage("");
           }}
           onOpenManager={() => setShowOnboarding(true)}
@@ -347,172 +210,18 @@ export default function Home() {
       {!activeGroupId ? (
         <section className="glass-card" style={{ marginTop: "1rem" }}>
           <h2>Get Started</h2>
-          <p className="muted">Create your first household/group to enable bill uploads and agentic splits.</p>
+          <p className="muted">Create your first household/group to enable the wizard flow.</p>
         </section>
       ) : null}
-
       {activeGroupId ? (
-      <section className="grid">
-        <BillUpload onParsed={handleParsed} />
-
-        {draft ? (
-          <section className="glass-card">
-            <h2>{draft.merchantName}</h2>
-            <p className="muted">Draft parsed from vision provider.</p>
-            <div className="kpi-row">
-              <div className="kpi-card">
-                <p className="muted">Subtotal</p>
-                <p>${(draft.subtotalCents / 100).toFixed(2)}</p>
-              </div>
-              <div className="kpi-card">
-                <p className="muted">Tax</p>
-                <p>${(draft.taxCents / 100).toFixed(2)}</p>
-              </div>
-              <div className="kpi-card">
-                <p className="muted">Total</p>
-                <p>${(draft.totalCents / 100).toFixed(2)}</p>
-              </div>
-            </div>
-          </section>
-        ) : (
-          <section className="glass-card">
-            <h2>No Active Bill</h2>
-            <p className="muted">Upload any receipt image to start assignment and split calculation.</p>
-          </section>
-        )}
-      </section>
-      ) : null}
-
-      {activeGroupId && draft ? (
-        <details className="glass-card collapsible section-gap" open>
-          <summary>Edit Draft</summary>
-          <h2>Edit Draft</h2>
-          <p className="muted">Review OCR output before split assignment and finalization.</p>
-          <div className="editor-grid">
-            <label>
-              Merchant
-              <input
-                className="text-input"
-                value={draft.merchantName}
-                onChange={(event) => updateDraftTop("merchantName", event.target.value)}
-              />
-            </label>
-            <label>
-              Bill Date
-              <input
-                className="text-input"
-                type="datetime-local"
-                value={draft.billDate.slice(0, 16)}
-                onChange={(event) => updateDraftTop("billDate", new Date(event.target.value).toISOString())}
-              />
-            </label>
-            <label>
-              Tax ($)
-              <input
-                className="text-input"
-                type="number"
-                min={0}
-                step={0.01}
-                value={(draft.taxCents / 100).toFixed(2)}
-                onChange={(event) => updateDraftTop("taxCents", event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="items-table">
-            {draft.items.map((item) => (
-              <article key={item.id} className="item-row">
-                <label className="item-edit">
-                  Item Label
-                  <input
-                    className="text-input"
-                    value={item.label}
-                    onChange={(event) => updateDraftItem(item.id, "label", event.target.value)}
-                  />
-                </label>
-                <label className="item-edit">
-                  Amount ($)
-                  <input
-                    className="text-input"
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={(item.lineTotalCents / 100).toFixed(2)}
-                    onChange={(event) => updateDraftItem(item.id, "lineTotalCents", event.target.value)}
-                  />
-                </label>
-              </article>
-            ))}
-          </div>
-          {draft.items.some((item) => item.label.trim().length === 0) ? (
-            <p className="error">Item labels cannot be empty.</p>
-          ) : null}
-        </details>
-      ) : null}
-
-      {activeGroupId && draft ? (
-        <SplitAssignment
-          draft={draft}
-          members={members}
-          assignments={assignments}
-          proposals={proposals}
-          confirmedReviewItemIds={confirmedReviewItemIds}
-          onChangeAssignments={setAssignments}
-          onConfirmReviewItem={(itemId) =>
-            setConfirmedReviewItemIds((prev) => (prev.includes(itemId) ? prev : [...prev, itemId]))
-          }
-        />
-      ) : null}
-
-      {activeGroupId && result ? (
         <section className="glass-card section-gap">
-          <h2>Agent Output</h2>
-          <p className="muted">
-            Suggested assignments are blended with manual edits. Learned defaults will persist after final approval.
-          </p>
-          <div className="kpi-row">
-            <div className="kpi-card">
-              <p className="muted">Member Totals Sum</p>
-              <p>${(result.totals.totalCents / 100).toFixed(2)}</p>
-            </div>
-            <div className="kpi-card">
-              <p className="muted">Bill Total</p>
-              <p>${((draft?.totalCents ?? 0) / 100).toFixed(2)}</p>
-            </div>
-            <div className="kpi-card">
-              <p className="muted">Defaults Upserts</p>
-              <p>{result.learnedDefaultsUpserts.length}</p>
-            </div>
-            <div className="kpi-card">
-              <p className="muted">AI Provider</p>
-              <p>{agentObservability?.providerUsed ?? "deterministic"}</p>
-            </div>
-            <div className="kpi-card">
-              <p className="muted">Unresolved Reviews</p>
-              <p>{agentObservability?.unresolvedCount ?? 0}</p>
-            </div>
+          <h2>Start New Split</h2>
+          <p className="muted">Launch the 6-step route wizard for upload, review, suggestions, confirmation, and finalize.</p>
+          <div className="chip-row" style={{ marginTop: "0.8rem" }}>
+            <button type="button" className="chip chip-active" onClick={() => router.push("/flow/upload")}>
+              Continue
+            </button>
           </div>
-          {agentObservability?.fallbackReason ? (
-            <p className="muted" style={{ marginTop: "0.5rem" }}>
-              Fallback reason: {agentObservability.fallbackReason}
-            </p>
-          ) : null}
-          <button type="button" className="chip chip-active" style={{ marginTop: "1rem" }} onClick={persistDefaults}>
-            {splitLaterBillId ? "Finalize Saved Bill" : "Finalize & Learn"}
-          </button>
-          <button type="button" className="chip" style={{ marginTop: "0.6rem" }} onClick={saveSplitLater}>
-            Split Later
-          </button>
-          {!splitLaterBillId ? (
-            <label className="muted" style={{ display: "block", marginTop: "0.6rem" }}>
-              <input type="checkbox" checked={allowOverride} onChange={(event) => setAllowOverride(event.target.checked)} />{" "}
-              Allow finalize override for unresolved review items
-            </label>
-          ) : (
-            <p className="muted" style={{ marginTop: "0.6rem" }}>
-              Split-later bills require confirmation for unresolved items before finalization.
-            </p>
-          )}
-          {persistStatus ? <p className="muted" style={{ marginTop: "0.6rem" }}>{persistStatus}</p> : null}
         </section>
       ) : null}
 
@@ -540,7 +249,7 @@ export default function Home() {
                     </Link>
                   ) : null}
                   {bill.status === "split_later" ? (
-                    <button type="button" className="chip" style={{ marginTop: "0.4rem" }} onClick={() => void reopenSplitLater(bill.id)}>
+                    <button type="button" className="chip" style={{ marginTop: "0.4rem" }} onClick={() => router.push(`/flow/suggest?resumeBillId=${bill.id}`)}>
                       Reopen Split
                     </button>
                   ) : null}
@@ -550,6 +259,173 @@ export default function Home() {
           )}
         </div>
       </section> : null}
+
+      {activeGroupId && ledger ? (
+        <section className="glass-card section-gap">
+          <h2>Running Balances</h2>
+          <p className="muted">Copying Splitwise-style who-owes-whom view.</p>
+          <div className="items-table" style={{ marginTop: "0.7rem" }}>
+            {ledger.balances.map((entry) => (
+              <article key={entry.memberId} className="item-row">
+                <p className="item-label">{entry.memberName}</p>
+                <p className={entry.balanceCents >= 0 ? "muted" : ""}>
+                  {entry.balanceCents >= 0 ? "gets" : "owes"} ${Math.abs(entry.balanceCents / 100).toFixed(2)}
+                </p>
+              </article>
+            ))}
+          </div>
+          <h3 style={{ marginTop: "0.8rem" }}>Suggested Settlements</h3>
+          <div className="items-table">
+            {ledger.settlements.length === 0 ? (
+              <p className="muted">No transfers needed.</p>
+            ) : (
+              ledger.settlements.map((transfer, index) => (
+                <article key={`${transfer.fromMemberId}-${index}`} className="item-row">
+                  <p>{transfer.fromMemberName} pays {transfer.toMemberName}</p>
+                  <p>${(transfer.amountCents / 100).toFixed(2)}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {activeGroupId ? (
+        <section className="glass-card section-gap">
+          <h2>Settle Up</h2>
+          <p className="muted">Record full or partial payments.</p>
+          <div className="chip-row" style={{ marginTop: "0.7rem", gap: "0.5rem" }}>
+            <select value={paymentForm.fromMemberId} onChange={(event) => setPaymentForm((prev) => ({ ...prev, fromMemberId: event.target.value }))}>
+              <option value="">From</option>
+              {groups.find((group) => group.id === activeGroupId)?.members.map((member) => (
+                <option key={member.id} value={member.id}>{member.name}</option>
+              ))}
+            </select>
+            <select value={paymentForm.toMemberId} onChange={(event) => setPaymentForm((prev) => ({ ...prev, toMemberId: event.target.value }))}>
+              <option value="">To</option>
+              {groups.find((group) => group.id === activeGroupId)?.members.map((member) => (
+                <option key={member.id} value={member.id}>{member.name}</option>
+              ))}
+            </select>
+            <input placeholder="Amount" value={paymentForm.amount} onChange={(event) => setPaymentForm((prev) => ({ ...prev, amount: event.target.value }))} />
+            <select value={paymentForm.method} onChange={(event) => setPaymentForm((prev) => ({ ...prev, method: event.target.value }))}>
+              {["cash", "bank_transfer", "upi", "venmo", "paypal", "other"].map((method) => (
+                <option key={method} value={method}>{method}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="chip chip-active"
+              onClick={async () => {
+                await fetch("/api/payments", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    householdId: activeGroupId,
+                    fromMemberId: paymentForm.fromMemberId,
+                    toMemberId: paymentForm.toMemberId,
+                    amountCents: Math.round((Number(paymentForm.amount) || 0) * 100),
+                    method: paymentForm.method,
+                  }),
+                });
+                setPaymentForm({ fromMemberId: "", toMemberId: "", amount: "", method: "other" });
+                await refreshFinancialData();
+              }}
+            >
+              Record Payment
+            </button>
+          </div>
+          <div className="items-table" style={{ marginTop: "0.7rem" }}>
+            {payments.slice(0, 10).map((payment) => (
+              <article key={payment.id} className="item-row">
+                <p>{payment.fromMember.name} paid {payment.toMember.name}</p>
+                <p>${(payment.amountCents / 100).toFixed(2)} · {payment.method}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {activeGroupId ? (
+        <section className="glass-card section-gap">
+          <h2>Activity Feed</h2>
+          <div className="items-table" style={{ marginTop: "0.7rem" }}>
+            {activity.slice(0, 10).map((entry) => (
+              <article key={entry.id} className="item-row">
+                <p>{entry.message}</p>
+                <p className="muted">{new Date(entry.createdAt).toLocaleString()}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {activeGroupId && analytics ? (
+        <section className="glass-card section-gap">
+          <h2>Dashboard & Analytics</h2>
+          <p className="muted">Bills: {analytics.totals.finalizedBills} · Spend: ${(analytics.totals.totalSpendCents / 100).toFixed(2)}</p>
+          <p className="muted">
+            Budget:{" "}
+            {analytics.budget.monthlyBudgetCents
+              ? `$${(analytics.budget.monthlyBudgetCents / 100).toFixed(2)}`
+              : "Not set"}
+          </p>
+          <h3 style={{ marginTop: "0.8rem" }}>By Category</h3>
+          <div className="items-table">
+            {analytics.spendByCategory.map((entry) => (
+              <article key={entry.category} className="item-row">
+                <p>{entry.category}</p>
+                <p>${(entry.totalCents / 100).toFixed(2)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {activeGroupId ? (
+        <section className="glass-card section-gap">
+          <h2>Recurring Expenses</h2>
+          <div className="chip-row" style={{ marginTop: "0.7rem", gap: "0.5rem" }}>
+            <input placeholder="Title" value={recurringForm.title} onChange={(event) => setRecurringForm((prev) => ({ ...prev, title: event.target.value }))} />
+            <input placeholder="Amount" value={recurringForm.amount} onChange={(event) => setRecurringForm((prev) => ({ ...prev, amount: event.target.value }))} />
+            <input placeholder="Category" value={recurringForm.category} onChange={(event) => setRecurringForm((prev) => ({ ...prev, category: event.target.value }))} />
+            <select value={recurringForm.cadence} onChange={(event) => setRecurringForm((prev) => ({ ...prev, cadence: event.target.value }))}>
+              {["weekly", "monthly", "quarterly"].map((cadence) => <option key={cadence} value={cadence}>{cadence}</option>)}
+            </select>
+            <button
+              type="button"
+              className="chip"
+              onClick={async () => {
+                await fetch("/api/recurring", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    householdId: activeGroupId,
+                    title: recurringForm.title,
+                    amountCents: Math.round((Number(recurringForm.amount) || 0) * 100),
+                    currency: "USD",
+                    category: recurringForm.category,
+                    cadence: recurringForm.cadence,
+                    nextRunAt: new Date().toISOString(),
+                  }),
+                });
+                setRecurringForm({ title: "", amount: "", cadence: "monthly", category: "" });
+                await refreshFinancialData();
+              }}
+            >
+              Add Recurring
+            </button>
+          </div>
+          <div className="items-table" style={{ marginTop: "0.7rem" }}>
+            {recurring.slice(0, 10).map((entry) => (
+              <article key={entry.id} className="item-row">
+                <p>{entry.title} · {entry.cadence}</p>
+                <p>${(entry.amountCents / 100).toFixed(2)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </main>
   );
 }

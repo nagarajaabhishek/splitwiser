@@ -13,14 +13,36 @@ enum BillStatus {
   finalized
 }
 
+enum ActivityType {
+  expense_created
+  expense_updated
+  expense_finalized
+  expense_split_later
+  payment_recorded
+}
+
+enum PaymentMethod {
+  cash
+  bank_transfer
+  upi
+  venmo
+  paypal
+  other
+}
+
 model Household {
   id        String   @id @default(cuid())
   name      String   @unique
+  defaultCurrency String @default("USD")
+  monthlyBudgetCents Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   members Member[]
   bills   Bill[]
+  payments Payment[]
+  activityLogs ActivityLog[]
+  recurringExpenses RecurringExpense[]
 
   @@map("households")
 }
@@ -39,6 +61,9 @@ model Member {
   billItems      BillItem[]
   transactions   Transaction[]
   learnedDefault LearnedDefault[]
+  paymentsSent     Payment[] @relation("PaymentFromMember")
+  paymentsReceived Payment[] @relation("PaymentToMember")
+  activities       ActivityLog[]
 
   @@index([householdId])
   @@unique([householdId, name])
@@ -54,6 +79,9 @@ model Bill {
   taxCents      Int
   totalCents    Int
   status        BillStatus @default(draft)
+  currency      String  @default("USD")
+  category      String?
+  note          String?
   shareToken    String?  @unique
   sharedAt      DateTime?
   createdAt     DateTime @default(now())
@@ -62,6 +90,7 @@ model Bill {
   household    Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
   billItems    BillItem[]
   transactions Transaction[]
+  activityLogs ActivityLog[]
 
   @@index([householdId, billDate])
   @@map("bills")
@@ -101,6 +130,66 @@ model Transaction {
 
   @@index([billId, memberId])
   @@map("transactions")
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  householdId   String
+  fromMemberId  String
+  toMemberId    String
+  amountCents   Int
+  method        PaymentMethod @default(other)
+  note          String?
+  externalRef   String?
+  paidAt        DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  fromMember Member @relation("PaymentFromMember", fields: [fromMemberId], references: [id], onDelete: Cascade)
+  toMember   Member @relation("PaymentToMember", fields: [toMemberId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, paidAt])
+  @@index([fromMemberId, toMemberId])
+  @@map("payments")
+}
+
+model ActivityLog {
+  id            String   @id @default(cuid())
+  householdId   String
+  billId        String?
+  actorMemberId String?
+  type          ActivityType
+  message       String
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  bill      Bill? @relation(fields: [billId], references: [id], onDelete: Cascade)
+  actor     Member? @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, createdAt])
+  @@index([billId])
+  @@map("activity_logs")
+}
+
+model RecurringExpense {
+  id            String   @id @default(cuid())
+  householdId   String
+  title         String
+  amountCents   Int
+  currency      String   @default("USD")
+  category      String?
+  cadence       String
+  nextRunAt     DateTime
+  splitConfig   Json?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, nextRunAt])
+  @@map("recurring_expenses")
 }
 
 model LearnedDefault {
