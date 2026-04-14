@@ -98,6 +98,7 @@ h3 {
 .error {
   color: var(--danger);
   margin-top: 0.5rem;
+  white-space: pre-wrap;
 }
 
 .items-table {

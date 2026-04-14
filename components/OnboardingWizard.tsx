@@ -62,14 +62,20 @@ export function OnboardingWizard({ onCreated, onClose }: OnboardingWizardProps) 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: groupName.trim(), members }),
     });
-    const json = await response.json();
+    const json = (await response.json()) as { error?: string; hint?: string; group?: GroupType };
     setIsSaving(false);
 
     if (!response.ok) {
-      setError(json.error ?? "Could not create group.");
+      const err = typeof json.error === "string" ? json.error : "Could not create group.";
+      const hint = typeof json.hint === "string" ? json.hint : "";
+      setError(hint ? `${err}\n\n${hint}` : err);
       return;
     }
 
+    if (!json.group) {
+      setError("Server returned no group.");
+      return;
+    }
     onCreated(json.group);
     setGroupName("");
     setMembers([]);

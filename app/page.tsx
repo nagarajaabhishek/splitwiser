@@ -69,9 +69,13 @@ export default function Home() {
         activeGroupId?: string | null;
         needsOnboarding?: boolean;
         error?: string;
+        hint?: string;
       };
       if (!response.ok) {
-        setBootstrapError(typeof json.error === "string" ? json.error : "Could not load your groups. Check the database connection in production.");
+        const err =
+          typeof json.error === "string" ? json.error : "Could not load your groups. Check the database connection in production.";
+        const hint = typeof json.hint === "string" ? json.hint : "";
+        setBootstrapError(hint ? `${err}\n\n${hint}` : err);
         setGroups([]);
         setActiveGroupId(null);
         setHouseholdId("");
@@ -236,7 +240,10 @@ export default function Home() {
         <section className="glass-card" style={{ marginTop: "1rem" }}>
           <h2>Get Started</h2>
           {bootstrapError ? (
-            <p className="muted" style={{ color: "var(--danger, #b42318)", marginTop: "0.5rem" }}>
+            <p
+              className="muted"
+              style={{ color: "var(--danger, #b42318)", marginTop: "0.5rem", whiteSpace: "pre-wrap" }}
+            >
               {bootstrapError}
             </p>
           ) : null}

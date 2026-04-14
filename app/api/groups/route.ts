@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createGroupWithMembers, listGroupsWithMembers } from "@/lib/db/groups";
+import { schemaDriftMigrateHint } from "@/lib/db/schema-drift";
 
 const memberInputSchema = z.object({
   name: z.string().min(1),
@@ -15,8 +16,18 @@ const createGroupSchema = z.object({
 });
 
 export async function GET() {
-  const groups = await listGroupsWithMembers();
-  return NextResponse.json({ groups });
+  try {
+    const groups = await listGroupsWithMembers();
+    return NextResponse.json({ groups });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to list groups";
+    const hint = schemaDriftMigrateHint(message);
+    console.error("[api/groups GET]", message, error);
+    return NextResponse.json(
+      { error: message, hint: hint ?? "Check DATABASE_URL and run prisma migrate deploy." },
+      { status: 503 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -39,8 +50,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ group }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid group payload";
-    const status =
-      message === "DUPLICATE_GROUP_NAME" || message === "DUPLICATE_MEMBER_NAME" ? 409 : 400;
-    return NextResponse.json({ error: message, code: message }, { status });
+    if (message === "DUPLICATE_GROUP_NAME" || message === "DUPLICATE_MEMBER_NAME") {
+      return NextResponse.json({ error: message, code: message }, { status: 409 });
+    }
+    const hint = schemaDriftMigrateHint(message);
+    if (hint) {
+      console.error("[api/groups POST]", message, error);
+      return NextResponse.json({ error: message, hint, code: "SCHEMA_DRIFT" }, { status: 503 });
+    }
+    return NextResponse.json({ error: message, code: message }, { status: 400 });
   }
 }
