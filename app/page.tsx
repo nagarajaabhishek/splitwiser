@@ -57,15 +57,39 @@ export default function Home() {
   const [paymentForm, setPaymentForm] = useState({ fromMemberId: "", toMemberId: "", amount: "", method: "other" });
   const [recurringForm, setRecurringForm] = useState({ title: "", amount: "", cadence: "monthly", category: "" });
   const [recurring, setRecurring] = useState<Array<{ id: string; title: string; amountCents: number; cadence: string; nextRunAt: string }>>([]);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   const loadBootstrap = useCallback(async (groupId?: string) => {
-    const params = groupId ? `?activeGroupId=${groupId}` : "";
-    const response = await fetch(`/api/bootstrap${params}`);
-    const json = await response.json();
-    setGroups(json.groups ?? []);
-    setShowOnboarding(Boolean(json.needsOnboarding));
-    setActiveGroupId(json.activeGroupId ?? null);
-    setHouseholdId(json.activeGroupId ?? "");
+    try {
+      const params = groupId ? `?activeGroupId=${groupId}` : "";
+      const response = await fetch(`/api/bootstrap${params}`);
+      const json = (await response.json()) as {
+        groups?: GroupType[];
+        activeGroupId?: string | null;
+        needsOnboarding?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        setBootstrapError(typeof json.error === "string" ? json.error : "Could not load your groups. Check the database connection in production.");
+        setGroups([]);
+        setActiveGroupId(null);
+        setHouseholdId("");
+        setShowOnboarding(true);
+        return;
+      }
+      setBootstrapError(null);
+      const nextGroups = json.groups ?? [];
+      setGroups(nextGroups);
+      setShowOnboarding(Boolean(json.needsOnboarding));
+      setActiveGroupId(json.activeGroupId ?? null);
+      setHouseholdId(json.activeGroupId ?? "");
+    } catch {
+      setBootstrapError("Network error while loading data. Try again in a moment.");
+      setGroups([]);
+      setActiveGroupId(null);
+      setHouseholdId("");
+      setShowOnboarding(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -175,7 +199,7 @@ export default function Home() {
         <p>Use the new guided wizard to parse, review, split, and finalize bills.</p>
       </section>
 
-      {showOnboarding ? (
+      {groups.length === 0 || showOnboarding ? (
         <OnboardingWizard onCreated={createGroupHandler} onClose={groups.length > 0 ? () => setShowOnboarding(false) : undefined} />
       ) : null}
 
@@ -210,7 +234,19 @@ export default function Home() {
       {!activeGroupId ? (
         <section className="glass-card" style={{ marginTop: "1rem" }}>
           <h2>Get Started</h2>
-          <p className="muted">Create your first household/group to enable the wizard flow.</p>
+          {bootstrapError ? (
+            <p className="muted" style={{ color: "var(--danger, #b42318)", marginTop: "0.5rem" }}>
+              {bootstrapError}
+            </p>
+          ) : null}
+          <p className="muted" style={{ marginTop: "0.5rem" }}>
+            Production uses its own database (empty until you add data here). Create a household below to unlock the split wizard.
+          </p>
+          <div className="chip-row" style={{ marginTop: "0.75rem" }}>
+            <button type="button" className="chip chip-active" onClick={() => void loadBootstrap()}>
+              Retry loading
+            </button>
+          </div>
         </section>
       ) : null}
       {activeGroupId ? (
