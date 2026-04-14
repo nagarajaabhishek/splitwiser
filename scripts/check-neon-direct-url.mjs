@@ -2,7 +2,9 @@
  * Prisma `migrate deploy` uses DIRECT_URL. It must be Neon's **direct** endpoint (host must not
  * contain `-pooler`). Using the pooler URL for both vars breaks migrations and confuses Prisma.
  *
- * Loads `.env` from cwd only for keys missing from `process.env` (Vercel injects vars; no file).
+ * Loads `.env` from cwd and **applies every key** (overwrites `process.env`) so values in `.env`
+ * win over stale exports from your shell (e.g. an old `export DIRECT_URL=…-pooler…`).
+ * On Vercel there is usually no `.env` file, so platform env is unchanged.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -17,7 +19,6 @@ function loadEnvFile() {
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
-    if (process.env[key] !== undefined) continue;
     let val = trimmed.slice(eq + 1).trim();
     if (
       (val.startsWith('"') && val.endsWith('"')) ||
