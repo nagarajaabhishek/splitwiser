@@ -9,9 +9,18 @@ function buildPrompt() {
   "subtotal": number,
   "tax": number,
   "total": number,
-  "items": [{ "label": "string", "lineTotal": number, "quantity": number }]
+  "items": [{
+    "label": "string (short line item name as printed)",
+    "lineTotal": number,
+    "quantity": number,
+    "rawLineText": "string optional full line text if visible and longer than label",
+    "upc": "string optional digits-only barcode/UPC if visible",
+    "itemCode": "string optional store SKU if visible",
+    "department": "string optional department/category if visible"
+  }]
 }
-Use decimal currency values (e.g. 12.34).`;
+Use decimal currency values (e.g. 12.34).
+Prefer capturing UPC/barcode digits when present; omit fields you cannot read.`;
 }
 
 export class OpenAIVisionProvider implements VisionProvider {

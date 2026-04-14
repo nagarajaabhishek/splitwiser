@@ -11,6 +11,14 @@ export type ParsedVisionItem = {
   label: string;
   lineTotal: number;
   quantity?: number;
+  /** Full line as printed on receipt when different from short label */
+  rawLineText?: string;
+  /** UPC/EAN digits if visible */
+  upc?: string;
+  /** Store SKU or internal item code if visible */
+  itemCode?: string;
+  /** Department/category code or name if visible */
+  department?: string;
 };
 
 export type ParsedVisionDraft = {
@@ -29,6 +37,10 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
       const lineTotalCents = Math.max(0, Math.round(item.lineTotal * 100));
       const quantity = Math.max(1, Math.round(item.quantity ?? 1));
       const unitPriceCents = Math.round(lineTotalCents / quantity);
+      const rawLineText = item.rawLineText?.trim();
+      const upc = item.upc?.trim() || undefined;
+      const itemCode = item.itemCode?.trim() || undefined;
+      const department = item.department?.trim() || undefined;
       return {
         id: `item-${index + 1}`,
         label,
@@ -36,6 +48,15 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
         quantity,
         unitPriceCents,
         lineTotalCents,
+        originalLabel: label,
+        rawLineText: rawLineText || undefined,
+        upc: upc ?? null,
+        itemCode: itemCode ?? null,
+        department: department ?? null,
+        enrichment: {
+          source: "none" as const,
+          needsReview: false,
+        },
       };
     })
     .filter((item) => item.lineTotalCents > 0);
@@ -71,6 +92,20 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
     subtotalCents,
     taxCents,
     totalCents,
-    items: uniqueItems.length > 0 ? uniqueItems : [{ id: "item-1", label: "Unknown item", normalizedLabel: "unknown item", quantity: 1, unitPriceCents: subtotalCents, lineTotalCents: subtotalCents }],
+    items:
+      uniqueItems.length > 0
+        ? uniqueItems
+        : [
+            {
+              id: "item-1",
+              label: "Unknown item",
+              normalizedLabel: "unknown item",
+              quantity: 1,
+              unitPriceCents: subtotalCents,
+              lineTotalCents: subtotalCents,
+              originalLabel: "Unknown item",
+              enrichment: { source: "none" as const, needsReview: true, confidence: 0.3 },
+            },
+          ],
   });
 }

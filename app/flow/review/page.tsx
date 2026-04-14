@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { ItemEnrichmentHint } from "@/components/ItemEnrichmentHint";
 import { useFlow } from "@/lib/flow/context";
 
 export default function ReviewStepPage() {
@@ -52,6 +53,7 @@ export default function ReviewStepPage() {
             <label className="item-edit">
               Item Label
               <input className="text-input" value={item.label} onChange={(event) => updateDraftItem(item.id, "label", event.target.value)} />
+              <ItemEnrichmentHint item={item} />
             </label>
             <label className="item-edit">
               Amount ($)

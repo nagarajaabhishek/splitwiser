@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const itemEnrichmentSchema = z.object({
+  source: z.enum(["none", "heuristic", "catalog", "ai"]).default("none"),
+  catalogProvider: z.string().optional(),
+  catalogProductName: z.string().optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  needsReview: z.boolean().optional(),
+  suggestedLabel: z.string().optional(),
+});
+
 export const normalizedBillItemSchema = z.object({
   id: z.string(),
   label: z.string().min(1),
@@ -7,6 +16,13 @@ export const normalizedBillItemSchema = z.object({
   quantity: z.number().int().positive().default(1),
   unitPriceCents: z.number().int().nonnegative(),
   lineTotalCents: z.number().int().nonnegative(),
+  /** Raw OCR / receipt text before enrichment (preserved for audit). */
+  originalLabel: z.string().optional(),
+  rawLineText: z.string().optional(),
+  upc: z.string().nullable().optional(),
+  itemCode: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
+  enrichment: itemEnrichmentSchema.optional(),
 });
 
 export const normalizedBillDraftSchema = z.object({
@@ -55,6 +71,8 @@ export const billUploadBatchResultSchema = z.object({
           replacedCount: z.number().int().nonnegative(),
           confidenceThreshold: z.number(),
           fallbackReason: z.string().optional(),
+          catalogMatches: z.number().int().nonnegative().optional(),
+          nameReviewCount: z.number().int().nonnegative().optional(),
         })
         .optional(),
     })
@@ -113,6 +131,7 @@ export const assignmentProposalSchema = z.object({
   needsReview: z.boolean().default(false),
 });
 
+export type ItemEnrichment = z.infer<typeof itemEnrichmentSchema>;
 export type NormalizedBillItem = z.infer<typeof normalizedBillItemSchema>;
 export type NormalizedBillDraft = z.infer<typeof normalizedBillDraftSchema>;
 export type BillUploadResponse = z.infer<typeof billUploadResponseSchema>;

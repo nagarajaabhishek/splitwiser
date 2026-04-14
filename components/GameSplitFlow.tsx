@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ItemEnrichmentHint } from "@/components/ItemEnrichmentHint";
 import { calculateMemberTotals } from "@/lib/engine/calculator";
 import type { AssignmentProposal, ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
 
@@ -170,6 +171,7 @@ export function GameSplitFlow({
         <>
           <article className="game-item-card">
             <p className="item-label">{currentItem.label}</p>
+            <ItemEnrichmentHint item={currentItem} />
             {proposal ? (
               <p className="muted item-breakdown">
                 {unresolved ? "Needs review" : "Auto-assigned"} · {Math.round(proposal.confidence * 100)}% · {proposal.source}
@@ -279,6 +281,7 @@ export function GameSplitFlow({
                 <article key={item.id} className="item-row">
                   <div>
                     <p className="item-label">{item.label}</p>
+                    <ItemEnrichmentHint item={item} />
                     <p className="muted">
                       {assignment.mode ?? "single"} · {owners}
                     </p>

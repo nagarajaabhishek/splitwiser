@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect -- sessionStorage hydration and client bootstrap fetch on mount */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { normalizeLabel, runSplitAgent, type LearnedDefaultRecord } from "@/lib/engine/agent";
 import type { AssignmentProposal, BillUploadResponse, ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
@@ -241,10 +242,15 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       const nextItems = prev.items.map((item) => {
         if (item.id !== itemId) return item;
         if (key === "label") {
+          const previousDisplay = item.label;
           return {
             ...item,
             label: value,
             normalizedLabel: normalizeLabel(value || "item"),
+            originalLabel: item.originalLabel ?? previousDisplay,
+            enrichment: item.enrichment
+              ? { ...item.enrichment, source: "none" as const, needsReview: false, confidence: 1, suggestedLabel: value }
+              : { source: "none" as const, needsReview: false, confidence: 1, suggestedLabel: value },
           };
         }
         const cents = Math.max(0, Math.round((Number(value) || 0) * 100));
@@ -367,6 +373,18 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     [activeGroupId, loadBootstrap],
   );
 
+  const clearFlowDraft = useCallback(() => {
+    setDraft(null);
+    setAssignmentsState([]);
+    setProposals([]);
+    setConfirmedReviewItemIds([]);
+    setSplitLaterBillId(null);
+    setPersistStatus("");
+    setAgentObservability(null);
+    setAllowOverride(false);
+    setIdempotencyKey(randomKey("fin"));
+  }, []);
+
   const deleteGroupHandler = useCallback(
     async (groupId: string) => {
       const response = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
@@ -379,7 +397,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       clearFlowDraft();
       setGroupMessage("Group deleted.");
     },
-    [loadBootstrap],
+    [loadBootstrap, clearFlowDraft],
   );
 
   const createGroupHandler = useCallback(
@@ -391,20 +409,8 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
       setPersistStatus("");
       setGroupMessage("Group created.");
     },
-    [loadBootstrap],
+    [loadBootstrap, clearFlowDraft],
   );
-
-  const clearFlowDraft = useCallback(() => {
-    setDraft(null);
-    setAssignmentsState([]);
-    setProposals([]);
-    setConfirmedReviewItemIds([]);
-    setSplitLaterBillId(null);
-    setPersistStatus("");
-    setAgentObservability(null);
-    setAllowOverride(false);
-    setIdempotencyKey(randomKey("fin"));
-  }, []);
 
   const value: FlowContextValue = {
     groups,

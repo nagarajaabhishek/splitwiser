@@ -1,5 +1,6 @@
 "use client";
 
+import { ItemEnrichmentHint } from "@/components/ItemEnrichmentHint";
 import type { AssignmentProposal, ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
 import { calculateMemberTotals } from "@/lib/engine/calculator";
 
@@ -134,6 +135,7 @@ export function SplitAssignment({
             <article key={item.id} className="item-row">
               <div className="item-left">
                 <p className="item-label">{item.label}</p>
+                <ItemEnrichmentHint item={item} />
                 <p className="muted">${(item.lineTotalCents / 100).toFixed(2)}</p>
                 {proposal ? (
                   <>

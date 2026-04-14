@@ -47,6 +47,8 @@ export async function POST(request: Request) {
           replacedCount: number;
           confidenceThreshold: number;
           fallbackReason?: string;
+          catalogMatches?: number;
+          nameReviewCount?: number;
         };
       };
     }> = [];

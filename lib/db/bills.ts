@@ -2,10 +2,33 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { runSplitAgent, runSplitAgentAutonomous, type LearnedDefaultRecord } from "@/lib/engine/agent";
 import { computeSettlements } from "@/lib/engine/settlement";
-import type { ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
+import type { ItemAssignment, ItemEnrichment, Member, NormalizedBillDraft, NormalizedBillItem } from "@/lib/schemas/bill";
 import { listLearnedDefaults, upsertLearnedDefaults } from "@/lib/db/learned-defaults";
 import { randomBytes } from "node:crypto";
 import { logActivity } from "@/lib/db/activity";
+
+function mapEnrichmentFromDb(value: Prisma.JsonValue | null): ItemEnrichment | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as ItemEnrichment;
+}
+
+function draftItemToBillItemCreate(item: NormalizedBillItem, assignment: ItemAssignment | undefined) {
+  return {
+    label: item.label,
+    normalizedLabel: item.normalizedLabel,
+    quantity: item.quantity,
+    unitPriceCents: item.unitPriceCents,
+    lineTotalCents: item.lineTotalCents,
+    originalLabel: item.originalLabel ?? null,
+    rawLineText: item.rawLineText ?? null,
+    upc: item.upc ?? null,
+    itemCode: item.itemCode ?? null,
+    department: item.department ?? null,
+    enrichmentMeta: item.enrichment ? (item.enrichment as Prisma.InputJsonValue) : Prisma.JsonNull,
+    assignedMemberId: pickPrimaryAssignee(assignment),
+  };
+}
 
 function pickPrimaryAssignee(assignment: ItemAssignment | undefined): string | null {
   if (!assignment || assignment.memberIds.length === 0) return null;
@@ -32,14 +55,7 @@ export async function createFinalizedBill(params: {
     manualAssignments: assignments,
   });
 
-  const createItems = draft.items.map((item) => ({
-    label: item.label,
-    normalizedLabel: item.normalizedLabel,
-    quantity: item.quantity,
-    unitPriceCents: item.unitPriceCents,
-    lineTotalCents: item.lineTotalCents,
-    assignedMemberId: pickPrimaryAssignee(assignments.find((entry) => entry.itemId === item.id)),
-  }));
+  const createItems = draft.items.map((item) => draftItemToBillItemCreate(item, assignments.find((entry) => entry.itemId === item.id)));
   const createTransactions = agentResult.totals.memberTotals.map((entry) => ({
     memberId: entry.memberId,
     subtotalCents: entry.subtotalCents,
@@ -158,14 +174,7 @@ export async function createSplitLaterBill(params: {
       currency: draft.currency,
       status: "split_later",
       billItems: {
-        create: draft.items.map((item) => ({
-          label: item.label,
-          normalizedLabel: item.normalizedLabel,
-          quantity: item.quantity,
-          unitPriceCents: item.unitPriceCents,
-          lineTotalCents: item.lineTotalCents,
-          assignedMemberId: pickPrimaryAssignee(assignments.find((entry) => entry.itemId === item.id)),
-        })),
+        create: draft.items.map((item) => draftItemToBillItemCreate(item, assignments.find((entry) => entry.itemId === item.id))),
       },
     },
   });
@@ -215,6 +224,12 @@ export async function loadSplitLaterBillForResume(billId: string) {
       quantity: item.quantity,
       unitPriceCents: item.unitPriceCents,
       lineTotalCents: item.lineTotalCents,
+      originalLabel: item.originalLabel ?? undefined,
+      rawLineText: item.rawLineText ?? undefined,
+      upc: item.upc ?? undefined,
+      itemCode: item.itemCode ?? undefined,
+      department: item.department ?? undefined,
+      enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
   };
 
@@ -308,9 +323,15 @@ export async function getBillDetail(billId: string) {
     items: bill.billItems.map((item) => ({
       id: item.id,
       label: item.label,
+      originalLabel: item.originalLabel,
+      rawLineText: item.rawLineText,
+      upc: item.upc,
+      itemCode: item.itemCode,
+      department: item.department,
       lineTotalCents: item.lineTotalCents,
       assignedMemberId: item.assignedMemberId,
       assignedMemberName: item.assignedMember?.name ?? null,
+      enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
     transactions: bill.transactions.map((transaction) => ({
       memberId: transaction.memberId,
@@ -386,9 +407,15 @@ export async function getSharedBillDetail(shareToken: string) {
     items: bill.billItems.map((item) => ({
       id: item.id,
       label: item.label,
+      originalLabel: item.originalLabel,
+      rawLineText: item.rawLineText,
+      upc: item.upc,
+      itemCode: item.itemCode,
+      department: item.department,
       lineTotalCents: item.lineTotalCents,
       assignedMemberId: item.assignedMemberId,
       assignedMemberName: item.assignedMember?.name ?? null,
+      enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
     transactions: bill.transactions.map((transaction) => ({
       memberId: transaction.memberId,

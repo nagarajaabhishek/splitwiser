@@ -1,4 +1,5 @@
 import { BillShareActions } from "@/components/BillShareActions";
+import { ItemEnrichmentHint } from "@/components/ItemEnrichmentHint";
 
 type BillDetailPageProps = {
   params: Promise<{ billId: string }>;
@@ -38,15 +39,27 @@ export default async function BillDetailPage({ params }: BillDetailPageProps) {
       <section className="glass-card" style={{ marginTop: "1rem" }}>
         <h2>Items</h2>
         <div className="items-table">
-          {bill.items.map((item: { id: string; label: string; lineTotalCents: number; assignedMemberName: string | null }) => (
+          {bill.items.map(
+            (item: {
+              id: string;
+              label: string;
+              lineTotalCents: number;
+              assignedMemberName: string | null;
+              originalLabel?: string | null;
+              rawLineText?: string | null;
+              upc?: string | null;
+              enrichment?: { needsReview?: boolean; source?: string } | null;
+            }) => (
             <article key={item.id} className="item-row">
               <div>
                 <p className="item-label">{item.label}</p>
+                <ItemEnrichmentHint item={item} />
                 <p className="muted">{item.assignedMemberName ?? "Unassigned"}</p>
               </div>
               <p>${(item.lineTotalCents / 100).toFixed(2)}</p>
             </article>
-          ))}
+          ),
+          )}
         </div>
       </section>
 
