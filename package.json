@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "npm run prisma:generate && next build",
+    "build:with-migrate": "npm run prisma:generate && prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test lib/**/*.test.ts",
