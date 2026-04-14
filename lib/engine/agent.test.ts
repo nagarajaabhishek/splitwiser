@@ -53,3 +53,25 @@ test("confirmed review items clear unresolved queue", async () => {
 
   assert.deepEqual(result.unresolvedReviewItemIds, []);
 });
+
+test("dietary conflict applies confidence penalty", async () => {
+  process.env.AI_ENABLED = "false";
+  process.env.AI_CONFIDENCE_THRESHOLD = "0.8";
+  const dietaryMembers = [
+    { id: "m1", name: "Alex", dietaryStyle: "vegetarian", allergies: [], exclusions: [] },
+    { id: "m2", name: "Jamie", dietaryStyle: null, allergies: [], exclusions: [] },
+  ];
+  const meatDraft = {
+    ...draft,
+    items: [{ ...draft.items[0], label: "Chicken Wrap", normalizedLabel: "chicken wrap" }],
+  };
+
+  const result = await runSplitAgentAutonomous({
+    draft: meatDraft,
+    members: dietaryMembers,
+    learnedDefaults: [{ memberId: "m1", normalizedLabel: "chicken wrap", confidence: 0.95, uses: 3 }],
+  });
+
+  assert.equal(result.proposals[0].confidence < 0.95, true);
+  assert.equal(result.proposals[0].reason.includes("dietary mismatch"), true);
+});

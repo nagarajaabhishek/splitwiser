@@ -22,6 +22,7 @@ export type SplitAgentResult = {
 };
 
 const CONFIDENCE_FLOOR = 0.6;
+const DIETARY_PENALTY = 0.35;
 
 export function normalizeLabel(label: string): string {
   return label
@@ -29,6 +30,59 @@ export function normalizeLabel(label: string): string {
     .trim()
     .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ");
+}
+
+function getDietaryConflict(member: Member | undefined, normalizedLabel: string): string[] {
+  if (!member) return [];
+
+  const conflicts: string[] = [];
+  const style = (member.dietaryStyle ?? "").toLowerCase();
+  const blockedByStyle: Record<string, string[]> = {
+    vegetarian: ["chicken", "beef", "pork", "fish", "shrimp", "meat", "bacon"],
+    vegan: ["chicken", "beef", "pork", "fish", "shrimp", "meat", "egg", "milk", "cheese", "butter", "yogurt", "honey"],
+    pescatarian: ["chicken", "beef", "pork", "meat", "bacon"],
+    halal: ["pork", "bacon", "ham"],
+    kosher: ["pork", "bacon", "shellfish", "shrimp"],
+  };
+  for (const token of blockedByStyle[style] ?? []) {
+    if (normalizedLabel.includes(token)) {
+      conflicts.push(`dietary style (${style}) conflict: ${token}`);
+      break;
+    }
+  }
+
+  for (const token of member.allergies ?? []) {
+    if (normalizedLabel.includes(token.toLowerCase())) {
+      conflicts.push(`allergy conflict: ${token}`);
+      break;
+    }
+  }
+  for (const token of member.exclusions ?? []) {
+    if (normalizedLabel.includes(token.toLowerCase())) {
+      conflicts.push(`exclusion conflict: ${token}`);
+      break;
+    }
+  }
+
+  return conflicts;
+}
+
+function applyDietaryPenaltyToProposal(
+  proposal: AssignmentProposal,
+  item: NormalizedBillDraft["items"][number],
+  members: Member[],
+): AssignmentProposal {
+  const targetMember = members.find((member) => member.id === proposal.suggestedMemberIds[0]);
+  const conflicts = getDietaryConflict(targetMember, item.normalizedLabel);
+  if (conflicts.length === 0) return proposal;
+  const confidence = Math.max(0, proposal.confidence - DIETARY_PENALTY);
+  const extraReason = `confidence reduced due to dietary mismatch risk (${conflicts.join(", ")})`;
+  return {
+    ...proposal,
+    confidence,
+    reason: proposal.reason ? `${proposal.reason}; ${extraReason}` : extraReason,
+    needsReview: proposal.needsReview || confidence < Number(process.env.AI_CONFIDENCE_THRESHOLD ?? 0.8),
+  };
 }
 
 export function suggestAssignments(params: {
@@ -44,7 +98,7 @@ export function suggestAssignments(params: {
       .sort((a, b) => b.confidence - a.confidence)[0];
 
     if (defaultHit) {
-      return {
+      const proposal: AssignmentProposal = {
         itemId: item.id,
         suggestedMemberIds: [defaultHit.memberId],
         mode: "single",
@@ -53,9 +107,10 @@ export function suggestAssignments(params: {
         source: "deterministic",
         needsReview: false,
       };
+      return applyDietaryPenaltyToProposal(proposal, item, members);
     }
 
-    return {
+    const proposal: AssignmentProposal = {
       itemId: item.id,
       suggestedMemberIds: members.length > 0 ? [members[0].id] : [],
       mode: "single",
@@ -64,6 +119,7 @@ export function suggestAssignments(params: {
       source: "deterministic",
       needsReview: true,
     };
+    return applyDietaryPenaltyToProposal(proposal, item, members);
   });
 }
 
@@ -125,22 +181,43 @@ export async function runSplitAgentAutonomous(params: {
   learnedDefaults: LearnedDefaultRecord[];
   manualAssignments?: ItemAssignment[];
   confirmedReviewItemIds?: string[];
-}): Promise<SplitAgentResult & { unresolvedReviewItemIds: string[] }> {
+}): Promise<
+  SplitAgentResult & {
+    unresolvedReviewItemIds: string[];
+    observability: {
+      providerUsed: "openai" | "gemini" | "fallback" | "deterministic";
+      fallbackReason?: string;
+      confidenceThreshold: number;
+      unresolvedCount: number;
+    };
+  }
+> {
   const { draft, members, learnedDefaults, manualAssignments, confirmedReviewItemIds = [] } = params;
   const deterministic = suggestAssignments({ draft, members, learnedDefaults });
   const aiEnabled = (process.env.AI_ENABLED ?? "true") === "true";
   const threshold = Number(process.env.AI_CONFIDENCE_THRESHOLD ?? 0.8);
 
   let proposals: AssignmentProposal[] = deterministic;
+  let providerUsed: "openai" | "gemini" | "fallback" | "deterministic" = "deterministic";
+  let fallbackReason: string | undefined;
   if (aiEnabled) {
-    const { suggestions, source } = await routeAISuggestions({ draft, members });
+    const routed = await routeAISuggestions({ draft, members });
+    const { suggestions, source } = routed;
+    providerUsed = source;
+    fallbackReason = routed.fallbackReason;
     const aiByItem = new Map(suggestions.map((suggestion) => [suggestion.itemId, suggestion]));
     proposals = deterministic.map((base) => {
+      const item = draft.items.find((entry) => entry.id === base.itemId);
       const ai = aiByItem.get(base.itemId);
       if (!ai) {
-        return { ...base, source: source === "fallback" ? "fallback" : "deterministic", needsReview: base.confidence < threshold };
+        const proposal: AssignmentProposal = {
+          ...base,
+          source: source === "fallback" ? "fallback" : "deterministic",
+          needsReview: base.confidence < threshold,
+        };
+        return item ? applyDietaryPenaltyToProposal(proposal, item, members) : proposal;
       }
-      return {
+      const proposal: AssignmentProposal = {
         itemId: base.itemId,
         suggestedMemberIds: ai.suggestedMemberIds?.length ? ai.suggestedMemberIds : base.suggestedMemberIds,
         mode: ai.mode ?? "single",
@@ -150,6 +227,7 @@ export async function runSplitAgentAutonomous(params: {
         source: source === "fallback" ? "fallback" : source,
         needsReview: (ai.confidence ?? 0) < threshold,
       };
+      return item ? applyDietaryPenaltyToProposal(proposal, item, members) : proposal;
     });
   }
 
@@ -180,5 +258,11 @@ export async function runSplitAgentAutonomous(params: {
     totals,
     learnedDefaultsUpserts: buildLearnedDefaultsUpserts(draft, assignments),
     unresolvedReviewItemIds,
+    observability: {
+      providerUsed,
+      fallbackReason,
+      confidenceThreshold: threshold,
+      unresolvedCount: unresolvedReviewItemIds.length,
+    },
   };
 }

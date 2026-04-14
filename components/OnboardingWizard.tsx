@@ -5,7 +5,7 @@ import { useState } from "react";
 type GroupType = {
   id: string;
   name: string;
-  members: Array<{ id: string; name: string }>;
+  members: Array<{ id: string; name: string; dietaryStyle?: string | null; allergies?: string[]; exclusions?: string[] }>;
 };
 
 type OnboardingWizardProps = {
@@ -16,15 +16,37 @@ type OnboardingWizardProps = {
 export function OnboardingWizard({ onCreated, onClose }: OnboardingWizardProps) {
   const [groupName, setGroupName] = useState("");
   const [memberInput, setMemberInput] = useState("");
-  const [members, setMembers] = useState<string[]>([]);
+  const [dietaryStyleInput, setDietaryStyleInput] = useState("");
+  const [allergiesInput, setAllergiesInput] = useState("");
+  const [exclusionsInput, setExclusionsInput] = useState("");
+  const [members, setMembers] = useState<
+    Array<{ name: string; dietaryStyle?: string | null; allergies?: string[]; exclusions?: string[] }>
+  >([]);
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const addMember = () => {
     const name = memberInput.trim();
     if (!name) return;
-    setMembers((prev) => [...prev, name]);
+    setMembers((prev) => [
+      ...prev,
+      {
+        name,
+        dietaryStyle: dietaryStyleInput.trim() || null,
+        allergies: allergiesInput
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+        exclusions: exclusionsInput
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      },
+    ]);
     setMemberInput("");
+    setDietaryStyleInput("");
+    setAllergiesInput("");
+    setExclusionsInput("");
   };
 
   const createGroup = async () => {
@@ -82,6 +104,20 @@ export function OnboardingWizard({ onCreated, onClose }: OnboardingWizardProps) 
           Add
         </button>
       </div>
+      <div className="editor-grid" style={{ marginTop: "0.6rem" }}>
+        <label className="item-edit">
+          Dietary style (optional)
+          <input className="text-input" value={dietaryStyleInput} onChange={(event) => setDietaryStyleInput(event.target.value)} />
+        </label>
+        <label className="item-edit">
+          Allergies (comma-separated)
+          <input className="text-input" value={allergiesInput} onChange={(event) => setAllergiesInput(event.target.value)} />
+        </label>
+        <label className="item-edit">
+          Exclusions (comma-separated)
+          <input className="text-input" value={exclusionsInput} onChange={(event) => setExclusionsInput(event.target.value)} />
+        </label>
+      </div>
 
       <div className="chip-row" style={{ marginTop: "0.7rem" }}>
         {members.map((member, index) => (
@@ -91,7 +127,7 @@ export function OnboardingWizard({ onCreated, onClose }: OnboardingWizardProps) 
             className="chip"
             onClick={() => setMembers((prev) => prev.filter((_, i) => i !== index))}
           >
-            {member} x
+            {member.name} x
           </button>
         ))}
       </div>

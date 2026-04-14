@@ -18,7 +18,13 @@ export async function getBootstrapData(activeGroupId?: string): Promise<{
   return {
     groups,
     activeGroupId: activeGroup.id,
-    members: activeGroup.members.map((member) => ({ id: member.id, name: member.name })),
+    members: activeGroup.members.map((member) => ({
+      id: member.id,
+      name: member.name,
+      dietaryStyle: member.dietaryStyle,
+      allergies: member.allergies,
+      exclusions: member.exclusions,
+    })),
     needsOnboarding: false,
   };
 }

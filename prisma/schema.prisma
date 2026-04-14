@@ -3,13 +3,13 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model Household {
   id        String   @id @default(cuid())
-  name      String
+  name      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -23,6 +23,9 @@ model Member {
   id          String   @id @default(cuid())
   householdId String
   name        String
+  dietaryStyle String?
+  allergies    Json?
+  exclusions   Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -32,6 +35,7 @@ model Member {
   learnedDefault LearnedDefault[]
 
   @@index([householdId])
+  @@unique([householdId, name])
   @@map("members")
 }
 
@@ -106,4 +110,15 @@ model LearnedDefault {
   @@unique([memberId, normalizedLabel])
   @@index([memberId, normalizedLabel])
   @@map("learned_defaults")
+}
+
+model FinalizeIdempotency {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  householdId String
+  billId      String
+  createdAt   DateTime @default(now())
+
+  @@index([householdId, createdAt])
+  @@map("finalize_idempotency")
 }

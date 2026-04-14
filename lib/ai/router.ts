@@ -26,7 +26,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export async function routeAISuggestions(input: {
   draft: NormalizedBillDraft;
   members: Member[];
-}): Promise<{ suggestions: AISuggestion[]; source: AIProviderName | "fallback" }> {
+}): Promise<{ suggestions: AISuggestion[]; source: AIProviderName | "fallback"; fallbackReason?: string }> {
   const primary = (process.env.AI_PRIMARY_PROVIDER as AIProviderName) || "openai";
   const fallback = (process.env.AI_FALLBACK_PROVIDER as AIProviderName) || "gemini";
   const timeoutMs = Number(process.env.AI_TIMEOUT_MS ?? 5000);
@@ -34,12 +34,13 @@ export async function routeAISuggestions(input: {
   try {
     const suggestions = await withTimeout(providers[primary].suggestAssignments(input), timeoutMs);
     return { suggestions, source: primary };
-  } catch {
+  } catch (primaryError) {
     try {
       const suggestions = await withTimeout(providers[fallback].suggestAssignments(input), timeoutMs);
       return { suggestions, source: fallback };
-    } catch {
-      return { suggestions: [], source: "fallback" };
+    } catch (fallbackError) {
+      const reason = `${primary}: ${String(primaryError)} | ${fallback}: ${String(fallbackError)}`;
+      return { suggestions: [], source: "fallback", fallbackReason: reason };
     }
   }
 }

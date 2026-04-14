@@ -16,6 +16,22 @@ export const normalizedBillDraftSchema = z.object({
   taxCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
   items: z.array(normalizedBillItemSchema).min(1),
+}).superRefine((value, context) => {
+  const itemsSubtotal = value.items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  if (Math.abs(itemsSubtotal - value.subtotalCents) > 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Subtotal must match summed item totals.",
+      path: ["subtotalCents"],
+    });
+  }
+  if (Math.abs(value.subtotalCents + value.taxCents - value.totalCents) > 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Total must equal subtotal + tax.",
+      path: ["totalCents"],
+    });
+  }
 });
 
 export const billUploadResponseSchema = z.object({
@@ -26,6 +42,9 @@ export const billUploadResponseSchema = z.object({
 export const memberSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
+  dietaryStyle: z.string().optional().nullable(),
+  allergies: z.preprocess((value) => value ?? [], z.array(z.string())),
+  exclusions: z.preprocess((value) => value ?? [], z.array(z.string())),
 });
 
 export const itemAssignmentSchema = z.object({

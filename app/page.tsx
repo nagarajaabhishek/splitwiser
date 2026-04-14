@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { BillUpload } from "@/components/BillUpload";
 import { SplitAssignment } from "@/components/SplitAssignment";
 import { GroupSwitcher } from "@/components/GroupSwitcher";
@@ -37,6 +38,14 @@ export default function Home() {
   const [proposals, setProposals] = useState<AssignmentProposal[]>([]);
   const [confirmedReviewItemIds, setConfirmedReviewItemIds] = useState<string[]>([]);
   const [allowOverride, setAllowOverride] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [groupMessage, setGroupMessage] = useState("");
+  const [agentObservability, setAgentObservability] = useState<{
+    providerUsed: string;
+    fallbackReason?: string;
+    confidenceThreshold: number;
+    unresolvedCount: number;
+  } | null>(null);
 
   const result = useMemo(() => {
     if (!draft || members.length === 0) return null;
@@ -90,6 +99,7 @@ export default function Home() {
 
   const handleParsed = (response: BillUploadResponse) => {
     setPersistStatus("");
+    setIdempotencyKey(`fin-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
     setDraft(response.draft);
     setConfirmedReviewItemIds([]);
     const fetchSuggestions = async () => {
@@ -107,6 +117,7 @@ export default function Home() {
       const json = await suggestResponse.json();
       setAssignments(json.assignments ?? []);
       setProposals(json.proposals ?? []);
+      setAgentObservability(json.observability ?? null);
     };
     void fetchSuggestions();
   };
@@ -171,6 +182,7 @@ export default function Home() {
         members,
         confirmedReviewItemIds,
         allowOverride,
+        idempotencyKey,
       }),
     });
     if (!response.ok) {
@@ -183,18 +195,53 @@ export default function Home() {
     setHistory(historyJson.bills ?? []);
   };
 
-  const createGroupHandler = async (group: GroupType) => {
-    await loadBootstrap(group.id);
+  const createGroupHandler = (group: { id: string }) => {
+    void loadBootstrap(group.id);
     setShowOnboarding(false);
     setDraft(null);
     setAssignments([]);
     setProposals([]);
     setHistory([]);
     setPersistStatus("");
+    setGroupMessage("Group created.");
+  };
+
+  const updateGroup = async (groupId: string, payload: Record<string, unknown>) => {
+    const response = await fetch(`/api/groups/${groupId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await response.json();
+    if (!response.ok) {
+      setGroupMessage(json.error ?? "Failed to update group");
+      return;
+    }
+    setGroupMessage("Group updated.");
+    await loadBootstrap(activeGroupId ?? groupId);
+  };
+
+  const deleteGroupHandler = async (groupId: string) => {
+    const response = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
+    if (!response.ok) {
+      const json = await response.json();
+      setGroupMessage(json.error ?? "Failed to delete group");
+      return;
+    }
+    await loadBootstrap();
+    setDraft(null);
+    setAssignments([]);
+    setProposals([]);
+    setGroupMessage("Group deleted.");
   };
 
   return (
     <main className="shell">
+      <section className="chip-row" style={{ justifyContent: "flex-end", marginBottom: "1rem" }}>
+        <Link href="/profile" className="chip">
+          About Me
+        </Link>
+      </section>
       <section className="hero">
         <h1>Splitwiser AI</h1>
         <p>Upload receipts, assign items, and reconcile every member total down to the cent.</p>
@@ -206,6 +253,7 @@ export default function Home() {
 
       {groups.length > 0 ? (
         <GroupSwitcher
+          key={activeGroupId ?? "no-group"}
           groups={groups}
           activeGroupId={activeGroupId}
           onSelect={(groupId) => {
@@ -214,8 +262,24 @@ export default function Home() {
             setAssignments([]);
             setProposals([]);
             setPersistStatus("");
+            setGroupMessage("");
           }}
           onOpenManager={() => setShowOnboarding(true)}
+          onRename={(groupId, name) => void updateGroup(groupId, { name })}
+          onAddMember={(groupId, memberName) => void updateGroup(groupId, { addMemberName: memberName })}
+          onRemoveMember={(groupId, memberId) => void updateGroup(groupId, { removeMemberId: memberId })}
+          onUpdateMemberProfile={(groupId, memberId, profile) =>
+            void updateGroup(groupId, {
+              updateMemberProfile: {
+                memberId,
+                dietaryStyle: profile.dietaryStyle ?? "",
+                allergies: profile.allergies ?? [],
+                exclusions: profile.exclusions ?? [],
+              },
+            })
+          }
+          onDeleteGroup={(groupId) => void deleteGroupHandler(groupId)}
+          message={groupMessage}
         />
       ) : null}
 
@@ -356,7 +420,20 @@ export default function Home() {
               <p className="muted">Defaults Upserts</p>
               <p>{result.learnedDefaultsUpserts.length}</p>
             </div>
+            <div className="kpi-card">
+              <p className="muted">AI Provider</p>
+              <p>{agentObservability?.providerUsed ?? "deterministic"}</p>
+            </div>
+            <div className="kpi-card">
+              <p className="muted">Unresolved Reviews</p>
+              <p>{agentObservability?.unresolvedCount ?? 0}</p>
+            </div>
           </div>
+          {agentObservability?.fallbackReason ? (
+            <p className="muted" style={{ marginTop: "0.5rem" }}>
+              Fallback reason: {agentObservability.fallbackReason}
+            </p>
+          ) : null}
           <button type="button" className="chip chip-active" style={{ marginTop: "1rem" }} onClick={persistDefaults}>
             Finalize & Learn
           </button>
@@ -378,7 +455,9 @@ export default function Home() {
             history.map((bill) => (
               <article key={bill.id} className="item-row">
                 <div>
-                  <p className="item-label">{bill.merchantName}</p>
+                  <p className="item-label">
+                    <Link href={`/bills/${bill.id}`}>{bill.merchantName}</Link>
+                  </p>
                   <p className="muted">{new Date(bill.billDate).toLocaleDateString()}</p>
                 </div>
                 <div>

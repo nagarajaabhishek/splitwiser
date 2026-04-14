@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/prisma";
 import { runSplitAgent, type LearnedDefaultRecord } from "@/lib/engine/agent";
+import { computeSettlements } from "@/lib/engine/settlement";
 import type { ItemAssignment, Member, NormalizedBillDraft } from "@/lib/schemas/bill";
 import { upsertLearnedDefaults } from "@/lib/db/learned-defaults";
 
@@ -96,4 +97,51 @@ export async function listBillHistory(householdId: string) {
       totalCents: transaction.totalCents,
     })),
   }));
+}
+
+export async function getBillDetail(billId: string) {
+  const bill = await prisma.bill.findUnique({
+    where: { id: billId },
+    include: {
+      household: true,
+      billItems: { include: { assignedMember: true } },
+      transactions: { include: { member: true } },
+    },
+  });
+  if (!bill) return null;
+
+  const paidShare = bill.totalCents / Math.max(1, bill.transactions.length);
+  const balances = bill.transactions.map((transaction) => ({
+    memberId: transaction.memberId,
+    memberName: transaction.member.name,
+    balanceCents: Math.round(paidShare - transaction.totalCents),
+  }));
+  const settlements = computeSettlements(balances);
+
+  return {
+    id: bill.id,
+    householdId: bill.householdId,
+    householdName: bill.household.name,
+    merchantName: bill.merchantName,
+    billDate: bill.billDate.toISOString(),
+    subtotalCents: bill.subtotalCents,
+    taxCents: bill.taxCents,
+    totalCents: bill.totalCents,
+    status: bill.status,
+    items: bill.billItems.map((item) => ({
+      id: item.id,
+      label: item.label,
+      lineTotalCents: item.lineTotalCents,
+      assignedMemberId: item.assignedMemberId,
+      assignedMemberName: item.assignedMember?.name ?? null,
+    })),
+    transactions: bill.transactions.map((transaction) => ({
+      memberId: transaction.memberId,
+      memberName: transaction.member.name,
+      subtotalCents: transaction.subtotalCents,
+      taxCents: transaction.taxCents,
+      totalCents: transaction.totalCents,
+    })),
+    settlements,
+  };
 }
