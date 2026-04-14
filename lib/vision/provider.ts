@@ -46,10 +46,24 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
       index,
   );
 
-  const subtotalCents =
-    input.subtotal !== undefined ? Math.max(0, Math.round(input.subtotal * 100)) : uniqueItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
-  const taxCents = input.tax !== undefined ? Math.max(0, Math.round(input.tax * 100)) : 0;
-  const totalCents = input.total !== undefined ? Math.max(0, Math.round(input.total * 100)) : subtotalCents + taxCents;
+  // Use summed item totals as source of truth; model-reported subtotal/tax/total often drifts.
+  const itemsSubtotalCents = uniqueItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  const reportedSubtotalCents = input.subtotal !== undefined ? Math.max(0, Math.round(input.subtotal * 100)) : itemsSubtotalCents;
+  const subtotalCents = itemsSubtotalCents > 0 ? itemsSubtotalCents : reportedSubtotalCents;
+
+  const reportedTaxCents = input.tax !== undefined ? Math.max(0, Math.round(input.tax * 100)) : 0;
+  const reportedTotalCents = input.total !== undefined ? Math.max(0, Math.round(input.total * 100)) : subtotalCents + reportedTaxCents;
+  let taxCents = reportedTaxCents;
+  let totalCents = reportedTotalCents;
+
+  // Reconcile to ensure strict schema consistency.
+  if (totalCents < subtotalCents) {
+    totalCents = subtotalCents + taxCents;
+  }
+  if (subtotalCents + taxCents !== totalCents) {
+    taxCents = Math.max(0, totalCents - subtotalCents);
+    totalCents = subtotalCents + taxCents;
+  }
 
   return normalizedBillDraftSchema.parse({
     merchantName: input.merchantName?.trim() || "Unknown Merchant",

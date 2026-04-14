@@ -33,6 +33,15 @@ Use a managed Postgres database in production (Neon, Supabase, RDS, Render, etc.
 - Set `DATABASE_URL` to your managed Postgres connection string.
 - Keep SSL enabled if required by your provider (for example `?sslmode=require`).
 
+## Neon Branch Contract
+
+This repo uses one Neon project with branch isolation:
+
+- Local development and CLI migration work: Neon `dev` branch
+- Vercel production runtime: Neon `main` branch
+
+Keep these branch URLs separate so local schema/data experiments never affect production.
+
 ## Vercel Deployment
 
 This repo includes `vercel.json` with a minimal Next.js framework config.
@@ -54,11 +63,39 @@ Build flow is handled by `npm run build`:
 npm run prisma:migrate:deploy
 ```
 
+## Prisma Migration Workflow
+
+Use migration files as the source of truth for schema changes.
+
+### Local development (Neon `dev` branch)
+
+```bash
+npx prisma migrate dev
+```
+
+- Review generated SQL migration files in `prisma/migrations`
+- Commit migration files with your code changes
+
+### Production rollout (Neon `main` branch)
+
+```bash
+npm run prisma:migrate:deploy
+```
+
+- Run this against production DB during release
+- Avoid `prisma db push` for production schema evolution
+
 ## Environment Variables
 
 ### Required
 
 - `DATABASE_URL`
+
+### DATABASE_URL Mapping
+
+- Local `.env`: Neon `dev` branch connection string
+- Vercel Production env: Neon `main` branch connection string
+- Use `postgresql://...?...sslmode=require` format for Neon
 
 ### Recommended Agent/Vision Controls
 
@@ -72,6 +109,8 @@ npm run prisma:migrate:deploy
 - `VISION_FALLBACK_PROVIDER` (default: `openai`)
 - `VISION_TIMEOUT_MS` (default: `12000`)
 - `VISION_MAX_UPLOAD_MB` (default: `12`)
+- `VISION_LABEL_AI_ENABLED` (default: `true`, applies AI label cleanup after OCR)
+- `VISION_LABEL_CONFIDENCE_THRESHOLD` (default: `0.8`, minimum confidence for AI label replacement)
 
 ### Provider Credentials (at least one provider should be fully configured)
 
@@ -81,6 +120,19 @@ npm run prisma:migrate:deploy
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL` (default: `gemini-1.5-flash`)
 - `GEMINI_VISION_MODEL` (default: `gemini-1.5-flash`)
+
+## Secrets Safety Checklist
+
+- Keep `.env` untracked (already ignored by `.gitignore`)
+- Never paste real API keys in docs, commits, or PR comments
+- Rotate provider keys immediately if exposed
+- Verify Vercel env values have no extra quotes/newlines
+- Before push, run:
+
+```bash
+git status --short
+git diff -- .env .env.example
+```
 
 ## Deployment Smoke Test Checklist
 

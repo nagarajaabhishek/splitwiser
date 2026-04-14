@@ -106,6 +106,9 @@ export function SplitAssignment({
     <section className="glass-card">
       <h2>Assign Items</h2>
       <p className="muted">Select split mode per item: single, equal, or custom percentage.</p>
+      <p className="muted" style={{ marginTop: "0.45rem" }}>
+        Tax split by subtotal share, then cent reconciliation to exactly match bill total.
+      </p>
       <div className="items-table">
         {draft.items.map((item) => {
           const assignment = assignments.find((entry) => entry.itemId === item.id);
@@ -119,87 +122,94 @@ export function SplitAssignment({
                 <p className="item-label">{item.label}</p>
                 <p className="muted">${(item.lineTotalCents / 100).toFixed(2)}</p>
                 {proposal ? (
-                  <p className="muted item-breakdown">
-                    {(unresolved ? "Needs review" : "Auto-assigned") +
-                      ` · ${Math.round(proposal.confidence * 100)}% · ${proposal.source}`}
-                    {proposal.reason ? ` · ${proposal.reason}` : ""}
-                  </p>
+                  <>
+                    <span className={unresolved ? "status-badge status-badge-warn" : "status-badge status-badge-ok"}>
+                      {unresolved ? "Needs review" : "Auto-assigned"}
+                    </span>
+                    <p className="muted item-breakdown">
+                      {`${Math.round(proposal.confidence * 100)}% · ${proposal.source}`}
+                      {proposal.reason ? ` · ${proposal.reason}` : ""}
+                    </p>
+                  </>
                 ) : null}
-                <div className="chip-row" style={{ marginTop: "0.45rem" }}>
-                  {(["single", "equal", "custom"] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={assignment.mode === mode ? "chip chip-active" : "chip"}
-                      onClick={() =>
-                        onChangeAssignments(
-                          assignments.map((entry) =>
-                            entry.itemId === item.id ? setMode(entry, mode, members) : entry,
-                          ),
-                        )
-                      }
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
               </div>
               <div className="item-right">
-                <div className="chip-row">
-                  {members.map((member) => (
-                    <button
-                      key={member.id}
-                      type="button"
-                      className={assignment.memberIds.includes(member.id) ? "chip chip-active" : "chip"}
-                      onClick={() =>
-                        onChangeAssignments(
-                          assignments.map((entry) => {
-                            if (entry.itemId !== item.id) return entry;
-                            if ((entry.mode ?? "single") === "single") return updateSingle(entry, member.id);
-                            if ((entry.mode ?? "single") === "equal") return toggleEqual(entry, member.id);
-                            return {
-                              ...entry,
-                              memberIds: entry.memberIds.includes(member.id)
-                                ? entry.memberIds
-                                : [...entry.memberIds, member.id],
-                              memberWeights: entry.memberWeights ?? [{ memberId: member.id, weight: 0 }],
-                            };
-                          }),
-                        )
-                      }
-                    >
-                      {member.name}
-                    </button>
-                  ))}
-                </div>
-
-                {(assignment.mode ?? "single") === "custom" ? (
-                  <div className="custom-grid">
-                    {members
-                      .filter((member) => assignment.memberIds.includes(member.id))
-                      .map((member) => (
-                        <label key={member.id} className="weight-input">
-                          <span>{member.name} %</span>
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={0.5}
-                            value={assignment.memberWeights?.find((entry) => entry.memberId === member.id)?.weight ?? 0}
-                            onChange={(event) =>
-                              onChangeAssignments(
-                                assignments.map((entry) =>
-                                  entry.itemId === item.id
-                                    ? setCustomWeight(entry, member.id, Number(event.target.value))
-                                    : entry,
-                                ),
-                              )
-                            }
-                          />
-                        </label>
-                      ))}
+                <details className="collapsible">
+                  <summary>Edit split details</summary>
+                  <div className="chip-row" style={{ marginTop: "0.45rem" }}>
+                    {(["single", "equal", "custom"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={assignment.mode === mode ? "chip chip-active" : "chip"}
+                        onClick={() =>
+                          onChangeAssignments(
+                            assignments.map((entry) =>
+                              entry.itemId === item.id ? setMode(entry, mode, members) : entry,
+                            ),
+                          )
+                        }
+                      >
+                        {mode}
+                      </button>
+                    ))}
                   </div>
-                ) : null}
+                  <div className="chip-row" style={{ marginTop: "0.5rem" }}>
+                    {members.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className={assignment.memberIds.includes(member.id) ? "chip chip-active" : "chip"}
+                        onClick={() =>
+                          onChangeAssignments(
+                            assignments.map((entry) => {
+                              if (entry.itemId !== item.id) return entry;
+                              if ((entry.mode ?? "single") === "single") return updateSingle(entry, member.id);
+                              if ((entry.mode ?? "single") === "equal") return toggleEqual(entry, member.id);
+                              return {
+                                ...entry,
+                                memberIds: entry.memberIds.includes(member.id)
+                                  ? entry.memberIds
+                                  : [...entry.memberIds, member.id],
+                                memberWeights: entry.memberWeights ?? [{ memberId: member.id, weight: 0 }],
+                              };
+                            }),
+                          )
+                        }
+                      >
+                        {member.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {(assignment.mode ?? "single") === "custom" ? (
+                    <div className="custom-grid">
+                      {members
+                        .filter((member) => assignment.memberIds.includes(member.id))
+                        .map((member) => (
+                          <label key={member.id} className="weight-input">
+                            <span>{member.name} %</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.5}
+                              value={assignment.memberWeights?.find((entry) => entry.memberId === member.id)?.weight ?? 0}
+                              onChange={(event) =>
+                                onChangeAssignments(
+                                  assignments.map((entry) =>
+                                    entry.itemId === item.id
+                                      ? setCustomWeight(entry, member.id, Number(event.target.value))
+                                      : entry,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        ))}
+                    </div>
+                  ) : null}
+                </details>
 
                 <p className="muted item-breakdown">
                   {breakdown
@@ -233,6 +243,7 @@ export function SplitAssignment({
               <h3>{memberName}</h3>
               <p>Subtotal: ${(total.subtotalCents / 100).toFixed(2)}</p>
               <p>Tax: ${(total.taxCents / 100).toFixed(2)}</p>
+              <p className="muted">Tax share {draft.taxCents > 0 ? Math.round((total.taxCents / draft.taxCents) * 100) : 0}%</p>
               <p className="summary-total">Total: ${(total.totalCents / 100).toFixed(2)}</p>
             </div>
           );

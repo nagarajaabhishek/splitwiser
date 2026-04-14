@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum BillStatus {
+  draft
+  split_later
+  finalized
+}
+
 model Household {
   id        String   @id @default(cuid())
   name      String   @unique
@@ -47,7 +53,9 @@ model Bill {
   subtotalCents Int
   taxCents      Int
   totalCents    Int
-  status        String   @default("draft")
+  status        BillStatus @default(draft)
+  shareToken    String?  @unique
+  sharedAt      DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -39,6 +39,7 @@ export default function Home() {
   const [confirmedReviewItemIds, setConfirmedReviewItemIds] = useState<string[]>([]);
   const [allowOverride, setAllowOverride] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [splitLaterBillId, setSplitLaterBillId] = useState<string | null>(null);
   const [groupMessage, setGroupMessage] = useState("");
   const [agentObservability, setAgentObservability] = useState<{
     providerUsed: string;
@@ -56,6 +57,13 @@ export default function Home() {
       manualAssignments: assignments,
     });
   }, [assignments, draft, learnedDefaults, members]);
+
+  const flowStep = useMemo(() => {
+    if (!activeGroupId) return 1;
+    if (!draft) return 2;
+    if (!result) return 3;
+    return 4;
+  }, [activeGroupId, draft, result]);
 
   const loadBootstrap = useCallback(async (groupId?: string) => {
     const params = groupId ? `?activeGroupId=${groupId}` : "";
@@ -100,6 +108,7 @@ export default function Home() {
   const handleParsed = (response: BillUploadResponse) => {
     setPersistStatus("");
     setIdempotencyKey(`fin-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+    setSplitLaterBillId(null);
     setDraft(response.draft);
     setConfirmedReviewItemIds([]);
     const fetchSuggestions = async () => {
@@ -177,6 +186,7 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         householdId,
+        sourceBillId: splitLaterBillId ?? undefined,
         draft,
         assignments,
         members,
@@ -190,9 +200,50 @@ export default function Home() {
       return;
     }
     setPersistStatus("Bill finalized and defaults learned.");
+    setSplitLaterBillId(null);
     const historyResponse = await fetch(`/api/bills/history?householdId=${householdId}`);
     const historyJson = await historyResponse.json();
     setHistory(historyJson.bills ?? []);
+  };
+
+  const saveSplitLater = async () => {
+    if (!draft || !householdId) return;
+    const response = await fetch("/api/bills/split-later", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        householdId,
+        draft,
+        assignments,
+      }),
+    });
+    const json = await response.json();
+    if (!response.ok) {
+      setPersistStatus(json.error ?? "Could not save for later.");
+      return;
+    }
+    setPersistStatus("Saved as Split Later. Reopen from bill history.");
+    setSplitLaterBillId(json.bill?.id ?? null);
+    const historyResponse = await fetch(`/api/bills/history?householdId=${householdId}`);
+    const historyJson = await historyResponse.json();
+    setHistory(historyJson.bills ?? []);
+  };
+
+  const reopenSplitLater = async (billId: string) => {
+    const response = await fetch(`/api/bills/${billId}/split-later`);
+    const json = await response.json();
+    if (!response.ok) {
+      setPersistStatus(json.error ?? "Could not reopen split-later bill.");
+      return;
+    }
+    setDraft(json.draft ?? null);
+    setMembers(json.members ?? members);
+    setAssignments(json.assignments ?? []);
+    setProposals(json.proposals ?? []);
+    setConfirmedReviewItemIds([]);
+    setAgentObservability(json.observability ?? null);
+    setSplitLaterBillId(billId);
+    setPersistStatus("Split-later bill reopened. Confirm unresolved items before finalizing.");
   };
 
   const createGroupHandler = (group: { id: string }) => {
@@ -238,13 +289,23 @@ export default function Home() {
   return (
     <main className="shell">
       <section className="chip-row" style={{ justifyContent: "flex-end", marginBottom: "1rem" }}>
-        <Link href="/profile" className="chip">
+        <Link href="https://abhisheknagaraja.com/" className="chip" target="_blank" rel="noopener noreferrer">
           About Me
         </Link>
       </section>
       <section className="hero">
         <h1>Splitwiser AI</h1>
         <p>Upload receipts, assign items, and reconcile every member total down to the cent.</p>
+      </section>
+      <section className="glass-card flow-card">
+        <h2>Guided Flow</h2>
+        <div className="flow-steps">
+          {["Select Group", "Upload & Parse", "Review Draft", "Assign & Confirm", "Finalize"].map((step, index) => (
+            <span key={step} className={index + 1 <= flowStep ? "status-badge status-badge-ok" : "status-badge"}>
+              {index + 1}. {step}
+            </span>
+          ))}
+        </div>
       </section>
 
       {showOnboarding ? (
@@ -323,7 +384,8 @@ export default function Home() {
       ) : null}
 
       {activeGroupId && draft ? (
-        <section className="glass-card" style={{ marginTop: "1rem" }}>
+        <details className="glass-card collapsible section-gap" open>
+          <summary>Edit Draft</summary>
           <h2>Edit Draft</h2>
           <p className="muted">Review OCR output before split assignment and finalization.</p>
           <div className="editor-grid">
@@ -384,7 +446,7 @@ export default function Home() {
           {draft.items.some((item) => item.label.trim().length === 0) ? (
             <p className="error">Item labels cannot be empty.</p>
           ) : null}
-        </section>
+        </details>
       ) : null}
 
       {activeGroupId && draft ? (
@@ -402,7 +464,7 @@ export default function Home() {
       ) : null}
 
       {activeGroupId && result ? (
-        <section className="glass-card" style={{ marginTop: "1rem" }}>
+        <section className="glass-card section-gap">
           <h2>Agent Output</h2>
           <p className="muted">
             Suggested assignments are blended with manual edits. Learned defaults will persist after final approval.
@@ -435,34 +497,53 @@ export default function Home() {
             </p>
           ) : null}
           <button type="button" className="chip chip-active" style={{ marginTop: "1rem" }} onClick={persistDefaults}>
-            Finalize & Learn
+            {splitLaterBillId ? "Finalize Saved Bill" : "Finalize & Learn"}
           </button>
-          <label className="muted" style={{ display: "block", marginTop: "0.6rem" }}>
-            <input type="checkbox" checked={allowOverride} onChange={(event) => setAllowOverride(event.target.checked)} />{" "}
-            Allow finalize override for unresolved review items
-          </label>
+          <button type="button" className="chip" style={{ marginTop: "0.6rem" }} onClick={saveSplitLater}>
+            Split Later
+          </button>
+          {!splitLaterBillId ? (
+            <label className="muted" style={{ display: "block", marginTop: "0.6rem" }}>
+              <input type="checkbox" checked={allowOverride} onChange={(event) => setAllowOverride(event.target.checked)} />{" "}
+              Allow finalize override for unresolved review items
+            </label>
+          ) : (
+            <p className="muted" style={{ marginTop: "0.6rem" }}>
+              Split-later bills require confirmation for unresolved items before finalization.
+            </p>
+          )}
           {persistStatus ? <p className="muted" style={{ marginTop: "0.6rem" }}>{persistStatus}</p> : null}
         </section>
       ) : null}
 
-      {activeGroupId ? <section className="glass-card" style={{ marginTop: "1rem" }}>
+      {activeGroupId ? <section className="glass-card section-gap">
         <h2>Bill History</h2>
-        <p className="muted">Persisted finalized bills from SQLite.</p>
+        <p className="muted">Persisted finalized and split-later bills.</p>
         <div className="items-table" style={{ marginTop: "0.7rem" }}>
           {history.length === 0 ? (
-            <p className="muted">No finalized bills yet.</p>
+            <p className="muted">No bills yet.</p>
           ) : (
             history.map((bill) => (
               <article key={bill.id} className="item-row">
                 <div>
                   <p className="item-label">
-                    <Link href={`/bills/${bill.id}`}>{bill.merchantName}</Link>
+                    {bill.status === "finalized" ? <Link href={`/bills/${bill.id}`}>{bill.merchantName}</Link> : bill.merchantName}
                   </p>
-                  <p className="muted">{new Date(bill.billDate).toLocaleDateString()}</p>
+                  <p className="muted">{new Date(bill.billDate).toLocaleDateString()} · {bill.status}</p>
                 </div>
                 <div>
                   <p>${(bill.totalCents / 100).toFixed(2)}</p>
                   <p className="muted">{bill.memberBreakdown.map((m) => `${m.memberName}: $${(m.totalCents / 100).toFixed(2)}`).join(" | ")}</p>
+                  {bill.status === "finalized" ? (
+                    <Link href={`/bills/${bill.id}`} className="chip" style={{ marginTop: "0.4rem", display: "inline-block" }}>
+                      View Details
+                    </Link>
+                  ) : null}
+                  {bill.status === "split_later" ? (
+                    <button type="button" className="chip" style={{ marginTop: "0.4rem" }} onClick={() => void reopenSplitLater(bill.id)}>
+                      Reopen Split
+                    </button>
+                  ) : null}
                 </div>
               </article>
             ))

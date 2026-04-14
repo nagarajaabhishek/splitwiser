@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { billUploadResponseSchema } from "@/lib/schemas/bill";
 import { extractWithVisionRouter } from "@/lib/vision";
+import { normalizeDraftLabels } from "@/lib/vision/label-normalizer";
 
 export async function POST(request: Request) {
   try {
@@ -29,9 +30,13 @@ export async function POST(request: Request) {
     }
 
     const { draft, providerUsed, fallbackReason } = await extractWithVisionRouter(file);
-    const payload = billUploadResponseSchema.parse({ source: providerUsed, draft });
+    const normalized = await normalizeDraftLabels(draft);
+    const payload = billUploadResponseSchema.parse({ source: providerUsed, draft: normalized.draft });
 
-    return NextResponse.json({ ...payload, diagnostics: { providerUsed, fallbackReason } }, { status: 200 });
+    return NextResponse.json(
+      { ...payload, diagnostics: { providerUsed, fallbackReason, labelNormalization: normalized.diagnostics } },
+      { status: 200 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload processing failed.";
     return NextResponse.json({ error: message, code: "UPLOAD_PARSE_FAILED" }, { status: 500 });

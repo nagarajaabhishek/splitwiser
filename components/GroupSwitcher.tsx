@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type GroupType = {
   id: string;
@@ -45,6 +45,10 @@ export function GroupSwitcher({
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? groups[0];
   const [renameValue, setRenameValue] = useState(activeGroup?.name ?? "");
   const [newMemberValue, setNewMemberValue] = useState("");
+  const renameChanged = useMemo(
+    () => Boolean(activeGroup && renameValue.trim() && renameValue.trim() !== activeGroup.name),
+    [activeGroup, renameValue],
+  );
 
   return (
     <section className="glass-card">
@@ -69,7 +73,9 @@ export function GroupSwitcher({
       </div>
       {activeGroup ? (
         <div style={{ marginTop: "0.8rem" }}>
-          <p className="muted">Edit group name</p>
+          <details className="collapsible" open>
+            <summary>Manage Group</summary>
+            <p className="muted">Edit group name</p>
           <div className="chip-row">
             <input
               className="text-input"
@@ -77,16 +83,34 @@ export function GroupSwitcher({
               onChange={(event) => setRenameValue(event.target.value)}
               style={{ marginTop: 0, maxWidth: 320 }}
             />
-            <button type="button" className="chip chip-active" onClick={() => onRename(activeGroup.id, renameValue)}>
+            <button
+              type="button"
+              className="chip chip-active"
+              disabled={!renameChanged}
+              onClick={() => onRename(activeGroup.id, renameValue)}
+            >
               Save Name
             </button>
-            <button type="button" className="chip" onClick={() => onDeleteGroup(activeGroup.id)}>
+            <button
+              type="button"
+              className="chip chip-danger"
+              onClick={() => {
+                if (confirm("Delete this group? This cannot be undone.")) onDeleteGroup(activeGroup.id);
+              }}
+            >
               Delete Group
             </button>
           </div>
           <div className="chip-row" style={{ marginTop: "0.6rem" }}>
             {activeGroup.members.map((member) => (
-              <button key={member.id} type="button" className="chip" onClick={() => onRemoveMember(activeGroup.id, member.id)}>
+              <button
+                key={member.id}
+                type="button"
+                className="chip"
+                onClick={() => {
+                  if (confirm(`Remove ${member.name} from this group?`)) onRemoveMember(activeGroup.id, member.id);
+                }}
+              >
                 {member.name} x
               </button>
             ))}
@@ -150,6 +174,7 @@ export function GroupSwitcher({
             <button
               type="button"
               className="chip chip-active"
+              disabled={!newMemberValue.trim()}
               onClick={() => {
                 onAddMember(activeGroup.id, newMemberValue);
                 setNewMemberValue("");
@@ -159,6 +184,7 @@ export function GroupSwitcher({
             </button>
           </div>
           {message ? <p className={message.toLowerCase().includes("failed") || message.toLowerCase().includes("duplicate") ? "error" : "muted"} style={{ marginTop: "0.5rem" }}>{message}</p> : null}
+          </details>
         </div>
       ) : null}
     </section>

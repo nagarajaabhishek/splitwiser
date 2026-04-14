@@ -8,6 +8,7 @@ import { normalizedBillDraftSchema, itemAssignmentSchema, memberSchema } from "@
 
 const finalizeSchema = z.object({
   householdId: z.string().min(1),
+  sourceBillId: z.string().optional(),
   draft: normalizedBillDraftSchema,
   assignments: z.array(itemAssignmentSchema),
   members: z.array(memberSchema).min(1).max(20),
@@ -47,7 +48,8 @@ export async function POST(request: Request) {
       confirmedReviewItemIds: payload.confirmedReviewItemIds,
     });
 
-    if (agentCheck.unresolvedReviewItemIds.length > 0 && !payload.allowOverride) {
+    const strictReviewRequired = Boolean(payload.sourceBillId);
+    if (agentCheck.unresolvedReviewItemIds.length > 0 && (strictReviewRequired || !payload.allowOverride)) {
       return NextResponse.json(
         {
           error: "Finalize blocked: unresolved review items exist.",
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       assignments: payload.assignments,
       members: payload.members,
       learnedDefaults,
+      existingBillId: payload.sourceBillId,
     });
 
     if (payload.idempotencyKey) {

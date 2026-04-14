@@ -131,15 +131,28 @@ h3 {
 .chip {
   border: 1px solid #b8d8c1;
   border-radius: 999px;
-  padding: 0.3rem 0.7rem;
+  padding: 0.45rem 0.8rem;
   color: #2f5f45;
   background: #f2faf3;
+  min-height: 40px;
+  cursor: pointer;
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .chip-active {
   color: #ffffff;
   border-color: transparent;
   background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+}
+
+.chip-danger {
+  color: var(--danger);
+  border-color: #e9abab;
+  background: #fff7f7;
 }
 
 .summary-grid {
@@ -235,8 +248,85 @@ h3 {
   margin-top: 0.5rem;
 }
 
+.status-badge {
+  display: inline-block;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid #bcd8c4;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  color: #476251;
+  background: #f3faf5;
+}
+
+.status-badge-ok {
+  color: #ffffff;
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--accent), var(--accent-strong));
+}
+
+.status-badge-warn {
+  color: #734f06;
+  border-color: #f4d79a;
+  background: #fff7e3;
+}
+
+.flow-card {
+  margin-bottom: 1rem;
+}
+
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.collapsible summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  margin-bottom: 0.55rem;
+}
+
+.collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.section-gap {
+  margin-top: 1rem;
+}
+
 @media (min-width: 960px) {
   .grid {
     grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .shell {
+    padding: 1rem 0.7rem 2rem;
+  }
+
+  .glass-card {
+    border-radius: 16px;
+    padding: 0.85rem;
+  }
+
+  .item-row {
+    padding: 0.7rem;
+  }
+
+  .chip {
+    min-height: 44px;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .text-input {
+    min-height: 42px;
+  }
+
+  .kpi-row {
+    grid-template-columns: 1fr 1fr;
   }
 }

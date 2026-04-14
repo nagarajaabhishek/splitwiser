@@ -37,7 +37,7 @@ export async function extractWithVisionRouter(file: File): Promise<{
 
   const primary = (process.env.VISION_PRIMARY_PROVIDER ?? "gemini") as VisionProviderName;
   const fallback = (process.env.VISION_FALLBACK_PROVIDER ?? "openai") as VisionProviderName;
-  const timeoutMs = Number(process.env.VISION_TIMEOUT_MS ?? 12000);
+  const timeoutMs = Number(process.env.VISION_TIMEOUT_MS ?? 30000);
 
   try {
     const draft = await withTimeout(providers[primary].extractBill(file), timeoutMs);

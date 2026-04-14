@@ -1,25 +1,24 @@
-import { BillShareActions } from "@/components/BillShareActions";
-
-type BillDetailPageProps = {
-  params: Promise<{ billId: string }>;
+type SharedBillPageProps = {
+  params: Promise<{ token: string }>;
 };
 
-async function getBill(billId: string) {
+async function getSharedBill(token: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const response = await fetch(`${baseUrl}/api/bills/${billId}`, { cache: "no-store" });
+  const response = await fetch(`${baseUrl}/api/share/${token}`, { cache: "no-store" });
   if (!response.ok) return null;
   const json = await response.json();
   return json.bill;
 }
 
-export default async function BillDetailPage({ params }: BillDetailPageProps) {
-  const { billId } = await params;
-  const bill = await getBill(billId);
+export default async function SharedBillPage({ params }: SharedBillPageProps) {
+  const { token } = await params;
+  const bill = await getSharedBill(token);
   if (!bill) {
     return (
       <main className="shell">
         <section className="glass-card">
-          <h2>Bill Not Found</h2>
+          <h2>Shared Bill Not Found</h2>
+          <p className="muted">This shared link is invalid or no longer available.</p>
         </section>
       </main>
     );
@@ -30,9 +29,8 @@ export default async function BillDetailPage({ params }: BillDetailPageProps) {
       <section className="glass-card">
         <h2>{bill.merchantName}</h2>
         <p className="muted">
-          {new Date(bill.billDate).toLocaleDateString()} · ${Number(bill.totalCents / 100).toFixed(2)}
+          Read-only shared view · {new Date(bill.billDate).toLocaleDateString()} · ${(bill.totalCents / 100).toFixed(2)}
         </p>
-        <BillShareActions billId={bill.id} status={bill.status} />
       </section>
 
       <section className="glass-card" style={{ marginTop: "1rem" }}>
