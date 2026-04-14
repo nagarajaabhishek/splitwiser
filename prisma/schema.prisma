@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Household {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members Member[]
+  bills   Bill[]
+
+  @@map("households")
+}
+
+model Member {
+  id          String   @id @default(cuid())
+  householdId String
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  household      Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  billItems      BillItem[]
+  transactions   Transaction[]
+  learnedDefault LearnedDefault[]
+
+  @@index([householdId])
+  @@map("members")
+}
+
+model Bill {
+  id            String   @id @default(cuid())
+  householdId   String
+  merchantName  String
+  billDate      DateTime
+  subtotalCents Int
+  taxCents      Int
+  totalCents    Int
+  status        String   @default("draft")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  household    Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  billItems    BillItem[]
+  transactions Transaction[]
+
+  @@index([householdId, billDate])
+  @@map("bills")
+}
+
+model BillItem {
+  id               String   @id @default(cuid())
+  billId           String
+  label            String
+  normalizedLabel  String
+  quantity         Int      @default(1)
+  unitPriceCents   Int
+  lineTotalCents   Int
+  assignedMemberId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  bill           Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  assignedMember Member? @relation(fields: [assignedMemberId], references: [id], onDelete: SetNull)
+
+  @@index([billId])
+  @@index([assignedMemberId])
+  @@map("bill_items")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  billId      String
+  memberId    String
+  subtotalCents Int
+  taxCents    Int
+  totalCents  Int
+  createdAt   DateTime @default(now())
+
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([billId, memberId])
+  @@map("transactions")
+}
+
+model LearnedDefault {
+  id              String   @id @default(cuid())
+  memberId        String
+  normalizedLabel String
+  confidence      Float    @default(0.5)
+  uses            Int      @default(1)
+  lastUsedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, normalizedLabel])
+  @@index([memberId, normalizedLabel])
+  @@map("learned_defaults")
+}
