@@ -13,6 +13,7 @@ type HistoryBill = {
   billDate: string;
   totalCents: number;
   status: string;
+  category?: string | null;
   memberBreakdown: Array<{ memberId: string; memberName: string; totalCents: number }>;
 };
 
@@ -274,7 +275,10 @@ export default function Home() {
                   <p className="item-label">
                     {bill.status === "finalized" ? <Link href={`/bills/${bill.id}`}>{bill.merchantName}</Link> : bill.merchantName}
                   </p>
-                  <p className="muted">{new Date(bill.billDate).toLocaleDateString()} · {bill.status}</p>
+                  <p className="muted">
+                    {new Date(bill.billDate).toLocaleDateString()} · {bill.status}
+                    {bill.category ? ` · ${bill.category}` : ""}
+                  </p>
                 </div>
                 <div>
                   <p>${(bill.totalCents / 100).toFixed(2)}</p>

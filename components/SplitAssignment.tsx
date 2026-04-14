@@ -119,6 +119,16 @@ export function SplitAssignment({
   return (
     <section className="glass-card">
       <h2>Assign Items</h2>
+      {draft.expenseCategory ? (
+        <p className="muted" style={{ marginTop: "0.35rem" }}>
+          <span className="status-badge status-badge-ok" style={{ marginRight: "0.35rem" }}>
+            Expense: {draft.expenseCategory}
+          </span>
+          {draft.expenseCategorySource ? (
+            <span className="muted">({draft.expenseCategorySource})</span>
+          ) : null}
+        </p>
+      ) : null}
       <p className="muted">Select split mode per item: single, equal, percentage, shares, exact amount, or custom.</p>
       <p className="muted" style={{ marginTop: "0.45rem" }}>
         Tax split by subtotal share, then cent reconciliation to exactly match bill total.
@@ -135,6 +145,11 @@ export function SplitAssignment({
             <article key={item.id} className="item-row">
               <div className="item-left">
                 <p className="item-label">{item.label}</p>
+                {item.productCategory ? (
+                  <span className="chip" style={{ marginTop: "0.25rem", display: "inline-block" }}>
+                    {item.productCategory}
+                  </span>
+                ) : null}
                 <ItemEnrichmentHint item={item} />
                 <p className="muted">${(item.lineTotalCents / 100).toFixed(2)}</p>
                 {proposal ? (

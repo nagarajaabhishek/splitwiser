@@ -110,6 +110,7 @@ model BillItem {
   itemCode         String?
   department       String?
   enrichmentMeta   Json?
+  productCategory  String?
   assignedMemberId String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

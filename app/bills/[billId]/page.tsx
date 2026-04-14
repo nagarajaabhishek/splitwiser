@@ -32,6 +32,7 @@ export default async function BillDetailPage({ params }: BillDetailPageProps) {
         <h2>{bill.merchantName}</h2>
         <p className="muted">
           {new Date(bill.billDate).toLocaleDateString()} · ${Number(bill.totalCents / 100).toFixed(2)}
+          {bill.category ? ` · ${bill.category}` : ""}
         </p>
         <BillShareActions billId={bill.id} status={bill.status} />
       </section>
@@ -49,10 +50,16 @@ export default async function BillDetailPage({ params }: BillDetailPageProps) {
               rawLineText?: string | null;
               upc?: string | null;
               enrichment?: { needsReview?: boolean; source?: string } | null;
+              productCategory?: string | null;
             }) => (
             <article key={item.id} className="item-row">
               <div>
                 <p className="item-label">{item.label}</p>
+                {item.productCategory ? (
+                  <span className="chip" style={{ marginTop: "0.25rem", display: "inline-block" }}>
+                    {item.productCategory}
+                  </span>
+                ) : null}
                 <ItemEnrichmentHint item={item} />
                 <p className="muted">{item.assignedMemberName ?? "Unassigned"}</p>
               </div>

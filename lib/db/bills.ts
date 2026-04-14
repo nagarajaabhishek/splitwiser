@@ -6,6 +6,7 @@ import type { ItemAssignment, ItemEnrichment, Member, NormalizedBillDraft, Norma
 import { listLearnedDefaults, upsertLearnedDefaults } from "@/lib/db/learned-defaults";
 import { randomBytes } from "node:crypto";
 import { logActivity } from "@/lib/db/activity";
+import { applyCategorizationToDraft } from "@/lib/categorization/infer";
 
 function mapEnrichmentFromDb(value: Prisma.JsonValue | null): ItemEnrichment | undefined {
   if (value === null || value === undefined) return undefined;
@@ -26,6 +27,7 @@ function draftItemToBillItemCreate(item: NormalizedBillItem, assignment: ItemAss
     itemCode: item.itemCode ?? null,
     department: item.department ?? null,
     enrichmentMeta: item.enrichment ? (item.enrichment as Prisma.InputJsonValue) : Prisma.JsonNull,
+    productCategory: item.productCategory ?? null,
     assignedMemberId: pickPrimaryAssignee(assignment),
   };
 }
@@ -81,6 +83,7 @@ export async function createFinalizedBill(params: {
         taxCents: draft.taxCents,
         totalCents: draft.totalCents,
         currency: draft.currency,
+        category: draft.expenseCategory ?? null,
         status: "finalized",
         billItems: {
           deleteMany: {},
@@ -107,6 +110,7 @@ export async function createFinalizedBill(params: {
         taxCents: draft.taxCents,
         totalCents: draft.totalCents,
         currency: draft.currency,
+        category: draft.expenseCategory ?? null,
         status: "finalized",
         billItems: {
           create: createItems,
@@ -172,6 +176,7 @@ export async function createSplitLaterBill(params: {
       taxCents: draft.taxCents,
       totalCents: draft.totalCents,
       currency: draft.currency,
+      category: draft.expenseCategory ?? null,
       status: "split_later",
       billItems: {
         create: draft.items.map((item) => draftItemToBillItemCreate(item, assignments.find((entry) => entry.itemId === item.id))),
@@ -210,7 +215,8 @@ export async function loadSplitLaterBillForResume(billId: string) {
   if (!bill || bill.status !== "split_later") return null;
 
   const members = bill.household.members.map((member) => mapDbMemberToSchema(member));
-  const draft: NormalizedBillDraft = {
+  const byItemId = new Map(bill.billItems.map((row) => [row.id, row]));
+  const baseDraft: NormalizedBillDraft = {
     merchantName: bill.merchantName,
     billDate: bill.billDate.toISOString(),
     currency: bill.currency,
@@ -229,8 +235,31 @@ export async function loadSplitLaterBillForResume(billId: string) {
       upc: item.upc ?? undefined,
       itemCode: item.itemCode ?? undefined,
       department: item.department ?? undefined,
+      productCategory: item.productCategory ?? undefined,
       enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
+  };
+  const inferred = applyCategorizationToDraft(baseDraft);
+  const draft: NormalizedBillDraft = {
+    ...inferred,
+    expenseCategory: bill.category ?? inferred.expenseCategory,
+    expenseCategorySource: bill.category ? "stored" : inferred.expenseCategorySource,
+    expenseCategoryConfidence: bill.category ? 1 : inferred.expenseCategoryConfidence,
+    items: inferred.items.map((item) => {
+      const row = byItemId.get(item.id);
+      if (row?.productCategory) {
+        return {
+          ...item,
+          productCategory: row.productCategory,
+          enrichment: {
+            ...item.enrichment,
+            source: item.enrichment?.source ?? "none",
+            productCategory: row.productCategory,
+          },
+        };
+      }
+      return item;
+    }),
   };
 
   const manualAssignments: ItemAssignment[] = bill.billItems
@@ -280,6 +309,7 @@ export async function listBillHistory(householdId: string) {
     totalCents: bill.totalCents,
     status: bill.status,
     currency: bill.currency,
+    category: bill.category,
     memberBreakdown: bill.transactions.map((transaction) => ({
       memberId: transaction.memberId,
       memberName: transaction.member.name,
@@ -331,6 +361,7 @@ export async function getBillDetail(billId: string) {
       lineTotalCents: item.lineTotalCents,
       assignedMemberId: item.assignedMemberId,
       assignedMemberName: item.assignedMember?.name ?? null,
+      productCategory: item.productCategory,
       enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
     transactions: bill.transactions.map((transaction) => ({
@@ -415,6 +446,7 @@ export async function getSharedBillDetail(shareToken: string) {
       lineTotalCents: item.lineTotalCents,
       assignedMemberId: item.assignedMemberId,
       assignedMemberName: item.assignedMember?.name ?? null,
+      productCategory: item.productCategory,
       enrichment: mapEnrichmentFromDb(item.enrichmentMeta),
     })),
     transactions: bill.transactions.map((transaction) => ({

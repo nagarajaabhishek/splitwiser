@@ -11,6 +11,7 @@ type HistoryBill = {
   billDate: string;
   totalCents: number;
   status: string;
+  category?: string | null;
   memberBreakdown: Array<{ memberId: string; memberName: string; totalCents: number }>;
 };
 

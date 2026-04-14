@@ -1,4 +1,5 @@
 import { normalizeLabel } from "@/lib/engine/agent";
+import { applyCategorizationToDraft } from "@/lib/categorization/infer";
 import type { NormalizedBillDraft, NormalizedBillItem } from "@/lib/schemas/bill";
 import { lookupProductByUpc } from "@/lib/vision/catalog/lookup";
 
@@ -290,11 +291,13 @@ export async function normalizeDraftLabels(
     return next;
   });
 
+  const withCategories = applyCategorizationToDraft({
+    ...draft,
+    items,
+  });
+
   return {
-    draft: {
-      ...draft,
-      items,
-    },
+    draft: withCategories,
     diagnostics: {
       providerUsed,
       usedAI,

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { UploadCloud } from "lucide-react";
+import { applyCategorizationToDraft } from "@/lib/categorization/infer";
 import type { BillUploadBatchResponse, BillUploadResponse } from "@/lib/schemas/bill";
 
 type BillUploadProps = {
@@ -64,7 +65,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
   const useDemoParser = () => {
     onParsed({
       source: "demo",
-      draft: {
+      draft: applyCategorizationToDraft({
         merchantName: "Demo Cafe",
         billDate: new Date().toISOString(),
         currency: "USD",
@@ -75,7 +76,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
           { id: "item-1", label: "Veg Bowl", normalizedLabel: "veg bowl", quantity: 1, unitPriceCents: 1299, lineTotalCents: 1299 },
           { id: "item-2", label: "Iced Tea", normalizedLabel: "iced tea", quantity: 1, unitPriceCents: 899, lineTotalCents: 899 },
         ],
-      },
+      }),
     });
     setError(null);
     setStatusText("Demo parser loaded.");

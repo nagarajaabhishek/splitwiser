@@ -7,6 +7,10 @@ export const itemEnrichmentSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   needsReview: z.boolean().optional(),
   suggestedLabel: z.string().optional(),
+  /** Auto inferred product line category (also on `NormalizedBillItem.productCategory`). */
+  productCategory: z.string().optional(),
+  productCategoryConfidence: z.number().min(0).max(1).optional(),
+  productCategorySource: z.enum(["department", "heuristic", "catalog"]).optional(),
 });
 
 export const normalizedBillItemSchema = z.object({
@@ -23,6 +27,8 @@ export const normalizedBillItemSchema = z.object({
   itemCode: z.string().nullable().optional(),
   department: z.string().nullable().optional(),
   enrichment: itemEnrichmentSchema.optional(),
+  /** Denormalized product category for UI and persistence (mirrors enrichment). */
+  productCategory: z.string().optional(),
 });
 
 export const normalizedBillDraftSchema = z.object({
@@ -33,6 +39,10 @@ export const normalizedBillDraftSchema = z.object({
   taxCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
   items: z.array(normalizedBillItemSchema).min(1),
+  /** Auto inferred receipt-level expense bucket (e.g. Groceries). */
+  expenseCategory: z.string().optional(),
+  expenseCategoryConfidence: z.number().min(0).max(1).optional(),
+  expenseCategorySource: z.enum(["merchant", "aggregate", "heuristic", "stored"]).optional(),
 }).superRefine((value, context) => {
   const itemsSubtotal = value.items.reduce((sum, item) => sum + item.lineTotalCents, 0);
   if (Math.abs(itemsSubtotal - value.subtotalCents) > 2) {

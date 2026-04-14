@@ -30,16 +30,29 @@ export default async function SharedBillPage({ params }: SharedBillPageProps) {
         <h2>{bill.merchantName}</h2>
         <p className="muted">
           Read-only shared view · {new Date(bill.billDate).toLocaleDateString()} · ${(bill.totalCents / 100).toFixed(2)}
+          {bill.category ? ` · ${bill.category}` : ""}
         </p>
       </section>
 
       <section className="glass-card" style={{ marginTop: "1rem" }}>
         <h2>Items</h2>
         <div className="items-table">
-          {bill.items.map((item: { id: string; label: string; lineTotalCents: number; assignedMemberName: string | null }) => (
+          {bill.items.map(
+            (item: {
+              id: string;
+              label: string;
+              lineTotalCents: number;
+              assignedMemberName: string | null;
+              productCategory?: string | null;
+            }) => (
             <article key={item.id} className="item-row">
               <div>
                 <p className="item-label">{item.label}</p>
+                {item.productCategory ? (
+                  <span className="chip" style={{ marginTop: "0.25rem", display: "inline-block" }}>
+                    {item.productCategory}
+                  </span>
+                ) : null}
                 <p className="muted">{item.assignedMemberName ?? "Unassigned"}</p>
               </div>
               <p>${(item.lineTotalCents / 100).toFixed(2)}</p>
