@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getBootstrapData } from "@/lib/db/bootstrap";
 
 export async function GET(request: Request) {
@@ -9,11 +10,18 @@ export async function GET(request: Request) {
     return NextResponse.json(bootstrap);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Bootstrap failed";
-    console.error("[api/bootstrap]", message, error);
+    const prismaCode =
+      error instanceof Prisma.PrismaClientKnownRequestError
+        ? error.code
+        : error instanceof Prisma.PrismaClientInitializationError
+          ? error.errorCode
+          : undefined;
+    console.error("[api/bootstrap]", prismaCode ?? message, error);
     return NextResponse.json(
       {
         error: message,
-        hint: "Confirm DATABASE_URL on Vercel (Production) and run prisma migrate deploy against that Neon database. Use the pooled connection string; add ?connect_timeout=15 if timeouts occur.",
+        prismaCode,
+        hint: "App uses Prisma + Neon WebSocket driver: set DATABASE_URL (Neon pooled or direct) and DIRECT_URL (direct, for migrations) on Vercel Production. See .env.example. Run: DIRECT_URL=… npx prisma migrate deploy",
         groups: [],
         activeGroupId: null,
         members: [],

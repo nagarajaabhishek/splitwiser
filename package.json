@@ -16,17 +16,21 @@
     "prisma:push:dev": "prisma db push"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "@prisma/adapter-neon": "^6.19.3",
     "@prisma/client": "^6.7.0",
     "lucide-react": "^0.540.0",
     "next": "16.2.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "ws": "^8.20.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "prisma": "^6.7.0",
