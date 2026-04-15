@@ -17,7 +17,8 @@ export async function GET(request: Request) {
         : error instanceof Prisma.PrismaClientInitializationError
           ? error.errorCode
           : undefined;
-    console.error("[api/bootstrap]", prismaCode ?? message, error);
+    const prismaMeta = error instanceof Prisma.PrismaClientKnownRequestError ? error.meta : undefined;
+    console.error("[api/bootstrap]", prismaCode ?? message, prismaMeta ? JSON.stringify(prismaMeta) : "", error);
     const schemaHint = schemaDriftMigrateHint(message);
     const hint =
       schemaHint ??
