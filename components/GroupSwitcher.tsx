@@ -67,7 +67,7 @@ export function GroupSwitcher({
             </option>
           ))}
         </select>
-        <button type="button" className="chip" onClick={onOpenManager}>
+        <button type="button" className="chip mobile-full-width" onClick={onOpenManager}>
           New Group
         </button>
       </div>
@@ -76,7 +76,7 @@ export function GroupSwitcher({
           <details className="collapsible" open>
             <summary>Manage Group</summary>
             <p className="muted">Edit group name</p>
-          <div className="chip-row">
+          <div className="chip-row stack-mobile">
             <input
               className="text-input"
               value={renameValue}
@@ -85,15 +85,17 @@ export function GroupSwitcher({
             />
             <button
               type="button"
-              className="chip chip-active"
+              className="chip chip-active mobile-full-width"
               disabled={!renameChanged}
               onClick={() => onRename(activeGroup.id, renameValue)}
             >
               Save Name
             </button>
+          </div>
+          <div className="chip-row stack-mobile" style={{ marginTop: "0.55rem" }}>
             <button
               type="button"
-              className="chip chip-danger"
+              className="chip chip-danger mobile-full-width"
               onClick={() => {
                 if (confirm("Delete this group? This cannot be undone.")) onDeleteGroup(activeGroup.id);
               }}
@@ -163,7 +165,7 @@ export function GroupSwitcher({
             ))}
           </div>
           <p className="muted" style={{ marginTop: "0.5rem" }}>Add member</p>
-          <div className="chip-row" style={{ marginTop: "0.6rem" }}>
+          <div className="chip-row stack-mobile" style={{ marginTop: "0.6rem" }}>
             <input
               className="text-input"
               placeholder="Add member"
@@ -173,7 +175,7 @@ export function GroupSwitcher({
             />
             <button
               type="button"
-              className="chip chip-active"
+              className="chip chip-active mobile-full-width"
               disabled={!newMemberValue.trim()}
               onClick={() => {
                 onAddMember(activeGroup.id, newMemberValue);

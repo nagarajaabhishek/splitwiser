@@ -22,10 +22,10 @@ export default function DecisionStepPage() {
       <h2>Finalize or Split Later</h2>
       <p className="muted">Member total sum ${(result.totals.totalCents / 100).toFixed(2)} · Bill total ${(draft.totalCents / 100).toFixed(2)}</p>
       <p className="muted">Unresolved review items: {unresolvedReviewItemIds.length}</p>
-      <div className="chip-row" style={{ marginTop: "1rem" }}>
+      <div className="chip-row mobile-actions stack-mobile" style={{ marginTop: "1rem" }}>
         <button
           type="button"
-          className="chip chip-active"
+          className="chip chip-active mobile-full-width"
           onClick={async () => {
             const billId = await finalizeBill();
             if (billId) router.push(`/flow/result/${billId}`);
@@ -35,7 +35,7 @@ export default function DecisionStepPage() {
         </button>
         <button
           type="button"
-          className="chip"
+          className="chip mobile-full-width"
           onClick={async () => {
             const billId = await saveSplitLater();
             if (billId) router.push("/");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractWithVisionRouter } from "@/lib/vision/router";
+import { extractWithVisionRouter, mergeDraftItemsKeepingTrueRepeats } from "@/lib/vision/router";
 import { normalizeVisionDraft } from "@/lib/vision/provider";
 
 function fakeFile(name: string, type: string) {
@@ -26,7 +26,7 @@ test("router mode throws when both providers fail", async () => {
   });
 });
 
-test("normalizeVisionDraft coerces and deduplicates items", () => {
+test("normalizeVisionDraft keeps repeated items and reconciles totals", () => {
   const draft = normalizeVisionDraft({
     merchantName: "",
     items: [
@@ -38,6 +38,29 @@ test("normalizeVisionDraft coerces and deduplicates items", () => {
   });
 
   assert.equal(draft.merchantName, "Unknown Merchant");
-  assert.equal(draft.items.length, 2);
+  assert.equal(draft.items.length, 3);
   assert.equal(draft.totalCents, draft.subtotalCents + draft.taxCents);
+});
+
+test("mergeDraftItemsKeepingTrueRepeats keeps max duplicate count across passes", () => {
+  const base = normalizeVisionDraft({
+    merchantName: "Walmart",
+    subtotal: 10,
+    tax: 0,
+    total: 10,
+    items: [
+      { label: "BANANAS", lineTotal: 1.0, quantity: 1 },
+      { label: "BANANAS", lineTotal: 1.0, quantity: 1 },
+    ],
+  });
+  const incoming = normalizeVisionDraft({
+    merchantName: "Walmart",
+    subtotal: 10,
+    tax: 0,
+    total: 10,
+    items: [{ label: "BANANAS", lineTotal: 1.0, quantity: 1 }],
+  });
+  const merged = mergeDraftItemsKeepingTrueRepeats(base, incoming);
+  assert.equal(merged.merged.items.length, 2);
+  assert.equal(merged.dropped >= 1, true);
 });

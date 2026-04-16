@@ -1,7 +1,9 @@
 import { normalizeLabel } from "@/lib/engine/agent";
 import { applyCategorizationToDraft } from "@/lib/categorization/infer";
 import type { NormalizedBillDraft, NormalizedBillItem } from "@/lib/schemas/bill";
-import { lookupProductByUpc } from "@/lib/vision/catalog/lookup";
+import { lookupProductByUpcDetailed } from "@/lib/vision/catalog/lookup";
+import { listLabelCorrections } from "@/lib/db/label-corrections";
+import { inferMerchantProfile } from "@/lib/vision/merchant-templates";
 
 type LabelNormalizationSuggestion = {
   input: string;
@@ -11,13 +13,19 @@ type LabelNormalizationSuggestion = {
 };
 
 export type LabelNormalizationDiagnostics = {
-  providerUsed: "heuristic" | "openai" | "gemini" | "fallback" | "catalog";
+  providerUsed: "heuristic" | "openai" | "gemini" | "fallback" | "catalog" | "memory";
   usedAI: boolean;
   replacedCount: number;
   confidenceThreshold: number;
   fallbackReason?: string;
   catalogMatches: number;
+  catalogProvidersUsed: string[];
+  catalogFallbackReason?: string;
+  catalogFallbackUsed?: boolean;
+  catalogProviderScorecard?: Array<{ provider: string; latencyMs: number; hit: boolean; error?: string }>;
   nameReviewCount: number;
+  memoryMatches: number;
+  merchantTemplate?: string;
 };
 
 const TOKEN_MAP: Record<string, string> = {
@@ -164,10 +172,33 @@ export async function normalizeDraftLabels(
   const nameReviewThreshold = Number(process.env.VISION_NAME_REVIEW_THRESHOLD ?? 0.85);
   const aiEnabled = (process.env.VISION_LABEL_AI_ENABLED ?? "true") === "true";
   const catalogEnabled = (process.env.VISION_CATALOG_LOOKUP_ENABLED ?? "true") === "true";
+  const merchantProfile = inferMerchantProfile(draft.merchantName);
+  let memoryMap = new Map<string, { correctedLabel: string; confidence: number; uses: number }>();
+  try {
+    memoryMap = await listLabelCorrections({
+      merchantName: draft.merchantName,
+      sourceLabels: draft.items.map((item) => item.originalLabel ?? item.label),
+    });
+  } catch {
+    // Label memory is a best-effort enhancement; parsing should still continue without DB access.
+  }
+  const memoryMatches = memoryMap.size;
 
-  const catalogHits = await Promise.all(
-    draft.items.map((item) => (catalogEnabled && item.upc ? lookupProductByUpc(item.upc) : Promise.resolve(null))),
+  const catalogLookups = await Promise.all(
+    draft.items.map((item) =>
+      catalogEnabled && item.upc
+        ? lookupProductByUpcDetailed(item.upc, { merchantName: merchantProfile.normalizedMerchantName })
+        : Promise.resolve({
+            result: null,
+            diagnostics: { attemptedProviders: [] as string[], fallbackReason: undefined, fallbackUsed: false, providerScorecard: [] },
+          }),
+    ),
   );
+  const catalogHits = catalogLookups.map((lookup) => lookup.result);
+  const catalogProvidersUsed = [...new Set(catalogHits.map((hit) => hit?.provider).filter((entry): entry is string => Boolean(entry)))];
+  const catalogFallbackReason = catalogLookups.map((lookup) => lookup.diagnostics.fallbackReason).find((entry) => Boolean(entry));
+  const catalogFallbackUsed = catalogLookups.some((lookup) => lookup.diagnostics.fallbackUsed);
+  const catalogProviderScorecard = catalogLookups.flatMap((lookup) => lookup.diagnostics.providerScorecard);
 
   const catalogMatches = catalogHits.filter(Boolean).length;
 
@@ -177,7 +208,7 @@ export async function normalizeDraftLabels(
     originalLabel: item.originalLabel ?? item.label,
   }));
 
-  let providerUsed: LabelNormalizationDiagnostics["providerUsed"] = catalogMatches > 0 ? "catalog" : "heuristic";
+  let providerUsed: LabelNormalizationDiagnostics["providerUsed"] = catalogMatches > 0 ? "catalog" : memoryMatches > 0 ? "memory" : "heuristic";
   let fallbackReason: string | undefined;
   let usedAI = false;
   let aiSuggestions: LabelNormalizationSuggestion[] = [];
@@ -211,6 +242,24 @@ export async function normalizeDraftLabels(
 
   const items = draft.items.map((item, index) => {
     const ocr = item.originalLabel ?? item.label;
+    const memoryHit = memoryMap.get(normalizeLabel(ocr));
+    if (memoryHit) {
+      const nextLabel = memoryHit.correctedLabel.trim();
+      const next = {
+        ...item,
+        label: nextLabel,
+        normalizedLabel: normalizeLabel(nextLabel),
+        originalLabel: ocr,
+        enrichment: {
+          source: "memory" as const,
+          confidence: Math.max(0.85, Math.min(0.99, memoryHit.confidence)),
+          needsReview: false,
+          suggestedLabel: nextLabel,
+        },
+      };
+      if (next.label !== item.label) replacedCount += 1;
+      return next;
+    }
     const catalog = catalogHits[index];
     if (catalog) {
       const next = {
@@ -305,7 +354,13 @@ export async function normalizeDraftLabels(
       confidenceThreshold,
       fallbackReason,
       catalogMatches,
+      catalogProvidersUsed,
+      catalogFallbackReason,
+      catalogFallbackUsed,
+      catalogProviderScorecard,
       nameReviewCount,
+      memoryMatches,
+      merchantTemplate: merchantProfile.merchantKey,
     },
   };
 }

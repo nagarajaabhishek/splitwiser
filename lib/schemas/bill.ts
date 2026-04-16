@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const itemEnrichmentSchema = z.object({
-  source: z.enum(["none", "heuristic", "catalog", "ai"]).default("none"),
+  source: z.enum(["none", "heuristic", "catalog", "ai", "memory"]).default("none"),
   catalogProvider: z.string().optional(),
   catalogProductName: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
@@ -38,6 +38,7 @@ export const normalizedBillDraftSchema = z.object({
   subtotalCents: z.number().int().nonnegative(),
   taxCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
+  receiptItemCount: z.number().int().positive().optional(),
   items: z.array(normalizedBillItemSchema).min(1),
   /** Auto inferred receipt-level expense bucket (e.g. Groceries). */
   expenseCategory: z.string().optional(),
@@ -82,7 +83,57 @@ export const billUploadBatchResultSchema = z.object({
           confidenceThreshold: z.number(),
           fallbackReason: z.string().optional(),
           catalogMatches: z.number().int().nonnegative().optional(),
+          catalogProvidersUsed: z.array(z.string()).optional(),
+          catalogFallbackReason: z.string().optional(),
+          catalogFallbackUsed: z.boolean().optional(),
+          catalogProviderScorecard: z
+            .array(
+              z.object({
+                provider: z.string(),
+                latencyMs: z.number().int().nonnegative(),
+                hit: z.boolean(),
+                error: z.string().optional(),
+              }),
+            )
+            .optional(),
           nameReviewCount: z.number().int().nonnegative().optional(),
+          memoryMatches: z.number().int().nonnegative().optional(),
+          merchantTemplate: z.string().optional(),
+        })
+        .optional(),
+      parseVerification: z
+        .object({
+          itemCount: z.number().int().nonnegative(),
+          receiptItemCount: z.number().int().positive().optional(),
+          itemCountDelta: z.number().int().nonnegative(),
+          duplicateLineGroups: z.number().int().nonnegative(),
+          duplicateLineExamples: z.array(z.string()),
+          subtotalFromItemsCents: z.number().int().nonnegative(),
+          subtotalDeltaCents: z.number().int().nonnegative(),
+          quantityAnomalyCount: z.number().int().nonnegative(),
+          severity: z.enum(["none", "soft", "hard"]),
+          hardReviewRequired: z.boolean(),
+          needsReview: z.boolean(),
+          reasons: z.array(z.string()),
+        })
+        .optional(),
+      hybridRecall: z
+        .object({
+          enabled: z.boolean(),
+          passCount: z.number().int().nonnegative(),
+          postPassItemCounts: z.array(z.number().int().nonnegative()),
+          secondaryProviderUsed: z.boolean(),
+          retryTriggered: z.boolean(),
+          remainingDelta: z.number().int().nonnegative().optional(),
+          mergeKept: z.number().int().nonnegative(),
+          mergeDropped: z.number().int().nonnegative(),
+          traces: z.array(
+            z.object({
+              pass: z.enum(["primary", "secondary", "retry"]),
+              provider: z.string(),
+              itemCount: z.number().int().nonnegative(),
+            }),
+          ),
         })
         .optional(),
     })

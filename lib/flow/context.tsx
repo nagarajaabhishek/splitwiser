@@ -26,6 +26,10 @@ type AgentObservability = {
   fallbackReason?: string;
   confidenceThreshold: number;
   unresolvedCount: number;
+  historyCount: number;
+  minHistoryRequired: number;
+  aiEligible: boolean;
+  aiHiddenReason?: string;
 } | null;
 
 type PersistedFlowState = {
@@ -194,7 +198,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     const suggestResponse = await fetch("/api/agent/suggest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ draft, members }),
+      body: JSON.stringify({ draft, members, historyCount: history.length }),
     });
     if (!suggestResponse.ok) {
       const fallback = runSplitAgent({ draft, members, learnedDefaults });
@@ -207,7 +211,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     setAssignmentsState(json.assignments ?? []);
     setProposals(json.proposals ?? []);
     setAgentObservability(json.observability ?? null);
-  }, [draft, learnedDefaults, members]);
+  }, [draft, history.length, learnedDefaults, members]);
 
   const handleParsed = useCallback(
     (response: BillUploadResponse) => {

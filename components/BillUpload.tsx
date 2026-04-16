@@ -45,14 +45,22 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       }
       const payload = json as BillUploadBatchResponse;
       setBatchResult(payload);
+      const singleDiagnostics = payload.successes[0]?.diagnostics;
+      const hardGate = singleDiagnostics?.parseVerification?.hardReviewRequired;
       if (payload.successes.length === 1) {
         const single = payload.successes[0];
         onParsed({ source: single.source, draft: single.draft });
       }
+      const catalogFallback = singleDiagnostics?.labelNormalization?.catalogFallbackReason;
+      const fallbackSuffix = catalogFallback ? " Catalog fallback was used." : "";
       setStatusText(
         payload.successes.length > 1
           ? `Parsed ${payload.successes.length} files. Choose one draft to continue.`
-          : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.`,
+          : hardGate
+            ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} and flagged as high-risk. Review all line items before continuing.${fallbackSuffix}`
+          : payload.successes[0]?.diagnostics?.parseVerification?.needsReview
+            ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} with verification warnings. Please review item list and totals.${fallbackSuffix}`
+            : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.${fallbackSuffix}`,
       );
     } catch (err) {
       setError(toFriendlyMessage(err instanceof Error ? err.message : "Unknown upload error"));
@@ -123,10 +131,15 @@ export function BillUpload({ onParsed }: BillUploadProps) {
                 <p className="muted">
                   {entry.draft.merchantName} · ${(entry.draft.totalCents / 100).toFixed(2)}
                 </p>
+                {entry.diagnostics?.parseVerification?.needsReview ? (
+                  <p className="muted" style={{ color: "var(--danger, #b42318)" }}>
+                    {entry.diagnostics.parseVerification.reasons[0] ?? "Verification flagged this parse for manual review."}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
-                className="chip chip-active"
+                className="chip chip-active mobile-full-width"
                 onClick={() => onParsed({ source: entry.source, draft: entry.draft })}
               >
                 Use This Draft
@@ -146,13 +159,13 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       ) : null}
       {error ? <p className="error">{error}</p> : null}
       {error ? (
-        <div className="chip-row" style={{ marginTop: "0.55rem" }}>
+        <div className="chip-row mobile-actions stack-mobile" style={{ marginTop: "0.55rem" }}>
           {lastFiles.length > 0 ? (
-            <button type="button" className="chip" onClick={() => void handleFiles(lastFiles)}>
+            <button type="button" className="chip mobile-full-width" onClick={() => void handleFiles(lastFiles)}>
               Try Again
             </button>
           ) : null}
-          <button type="button" className="chip" onClick={useDemoParser}>
+          <button type="button" className="chip mobile-full-width" onClick={useDemoParser}>
             Use Demo Parser
           </button>
         </div>

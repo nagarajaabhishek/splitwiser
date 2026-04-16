@@ -181,6 +181,7 @@ export async function runSplitAgentAutonomous(params: {
   learnedDefaults: LearnedDefaultRecord[];
   manualAssignments?: ItemAssignment[];
   confirmedReviewItemIds?: string[];
+  historyCount?: number;
 }): Promise<
   SplitAgentResult & {
     unresolvedReviewItemIds: string[];
@@ -189,18 +190,35 @@ export async function runSplitAgentAutonomous(params: {
       fallbackReason?: string;
       confidenceThreshold: number;
       unresolvedCount: number;
+      historyCount: number;
+      minHistoryRequired: number;
+      aiEligible: boolean;
+      aiHiddenReason?: string;
     };
   }
 > {
-  const { draft, members, learnedDefaults, manualAssignments, confirmedReviewItemIds = [] } = params;
+  const { draft, members, learnedDefaults, manualAssignments, confirmedReviewItemIds = [], historyCount = 0 } = params;
   const deterministic = suggestAssignments({ draft, members, learnedDefaults });
   const aiEnabled = (process.env.AI_ENABLED ?? "true") === "true";
   const threshold = Number(process.env.AI_CONFIDENCE_THRESHOLD ?? 0.8);
+  const minHistoryRequired = Math.max(1, Number(process.env.AI_MIN_HISTORY_ORDERS ?? 12));
+  const hasEnoughHistory = historyCount >= minHistoryRequired;
+  const hasMemberContext = members.every(
+    (member) =>
+      (member.dietaryStyle?.trim().length ?? 0) > 0 ||
+      (member.allergies?.length ?? 0) > 0 ||
+      (member.exclusions?.length ?? 0) > 0,
+  );
+  const aiEligible = aiEnabled && hasEnoughHistory && hasMemberContext;
+  let aiHiddenReason: string | undefined;
+  if (!aiEnabled) aiHiddenReason = "AI is disabled in configuration.";
+  else if (!hasEnoughHistory) aiHiddenReason = `Need at least ${minHistoryRequired} past orders before AI suggestions are shown.`;
+  else if (!hasMemberContext) aiHiddenReason = "Add dietary style, allergies, or exclusions for each member to unlock AI suggestions.";
 
   let proposals: AssignmentProposal[] = deterministic;
   let providerUsed: "openai" | "gemini" | "fallback" | "deterministic" = "deterministic";
   let fallbackReason: string | undefined;
-  if (aiEnabled) {
+  if (aiEligible) {
     const routed = await routeAISuggestions({ draft, members });
     const { suggestions, source } = routed;
     providerUsed = source;
@@ -263,6 +281,10 @@ export async function runSplitAgentAutonomous(params: {
       fallbackReason,
       confidenceThreshold: threshold,
       unresolvedCount: unresolvedReviewItemIds.length,
+      historyCount,
+      minHistoryRequired,
+      aiEligible,
+      aiHiddenReason,
     },
   };
 }

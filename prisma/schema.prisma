@@ -44,6 +44,7 @@ model Household {
   payments Payment[]
   activityLogs ActivityLog[]
   recurringExpenses RecurringExpense[]
+  labelCorrections LabelCorrection[]
 
   @@map("households")
 }
@@ -226,4 +227,24 @@ model FinalizeIdempotency {
 
   @@index([householdId, createdAt])
   @@map("finalize_idempotency")
+}
+
+model LabelCorrection {
+  id               String   @id @default(cuid())
+  householdId      String?
+  merchantNormalized String
+  sourceNormalized String
+  correctedLabel   String
+  confidence       Float    @default(0.9)
+  uses             Int      @default(1)
+  lastUsedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  household Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantNormalized, sourceNormalized])
+  @@index([merchantNormalized, sourceNormalized])
+  @@index([householdId, merchantNormalized])
+  @@map("label_corrections")
 }

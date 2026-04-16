@@ -7,6 +7,7 @@ import { listLearnedDefaults } from "@/lib/db/learned-defaults";
 const suggestSchema = z.object({
   draft: normalizedBillDraftSchema,
   members: z.array(memberSchema),
+  historyCount: z.number().int().nonnegative().optional(),
   manualAssignments: z.array(itemAssignmentSchema).optional(),
   confirmedReviewItemIds: z.array(z.string()).optional(),
 });
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
       draft: payload.draft,
       members: payload.members,
       learnedDefaults,
+      historyCount: payload.historyCount,
       manualAssignments: payload.manualAssignments,
       confirmedReviewItemIds: payload.confirmedReviewItemIds,
     });

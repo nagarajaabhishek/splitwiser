@@ -1,7 +1,13 @@
 import type { VisionProvider } from "@/lib/vision/provider";
 import { normalizeVisionDraft, type ParsedVisionDraft } from "@/lib/vision/provider";
+import { inferMerchantProfile } from "@/lib/vision/merchant-templates";
 
-function buildPrompt() {
+function buildPrompt(merchantKey: string, retryMissingOnly: boolean, knownLineHints: string[] = []) {
+  const retryInstructions = retryMissingOnly
+    ? `\nRETRY MODE: Return ONLY purchasable line items that are missing from known lines.\nKnown lines to exclude: ${JSON.stringify(
+        knownLineHints,
+      )}\nDo not include any line that appears in the known list.`
+    : "";
   return `Extract this receipt into strict JSON:
 {
   "merchantName": "string",
@@ -9,6 +15,7 @@ function buildPrompt() {
   "subtotal": number,
   "tax": number,
   "total": number,
+  "itemsSoldCount": number,
   "items": [{
     "label": "string (short line item name as printed)",
     "lineTotal": number,
@@ -20,11 +27,21 @@ function buildPrompt() {
   }]
 }
 Use decimal currency values (e.g. 12.34).
-Prefer capturing UPC/barcode digits when present; omit fields you cannot read.`;
+Prefer capturing UPC/barcode digits when present; omit fields you cannot read.
+IMPORTANT: list every purchased line item exactly as shown, in receipt order.
+Do not merge similar lines, do not deduplicate repeated labels, and do not collapse weighted produce lines.
+If the same item appears multiple times, return multiple entries.
+For ${merchantKey} receipts, prioritize extracting "itemsSoldCount" from footer lines like "# ITEMS SOLD" and ensure the items array reflects that count when visible.${retryInstructions}`;
 }
 
 export class OpenAIVisionProvider implements VisionProvider {
-  async extractBill(file: File) {
+  async extractBill(
+    file: File,
+    options?: {
+      retryMissingOnly?: boolean;
+      knownLineHints?: string[];
+    },
+  ) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error("VISION_KEY_MISSING:OPENAI");
@@ -35,6 +52,7 @@ export class OpenAIVisionProvider implements VisionProvider {
     }
 
     const model = process.env.OPENAI_VISION_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    const merchantKey = inferMerchantProfile(file.name).merchantKey;
     const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
     const dataUrl = `data:${file.type || "image/png"};base64,${base64}`;
 
@@ -51,7 +69,11 @@ export class OpenAIVisionProvider implements VisionProvider {
           {
             role: "user",
             content: [
-              { type: "text", text: buildPrompt() },
+              {
+                type: "text",
+                text: buildPrompt(merchantKey, Boolean(options?.retryMissingOnly), options?.knownLineHints ?? []),
+              },
+              { type: "text", text: `Merchant template hint: ${merchantKey}` },
               { type: "image_url", image_url: { url: dataUrl } },
             ],
           },

@@ -12,6 +12,7 @@ type SplitAssignmentProps = {
   confirmedReviewItemIds: string[];
   onChangeAssignments: (next: ItemAssignment[]) => void;
   onConfirmReviewItem: (itemId: string) => void;
+  showSuggestionDetails?: boolean;
 };
 
 function updateSingle(assignment: ItemAssignment, memberId: string): ItemAssignment {
@@ -107,6 +108,7 @@ export function SplitAssignment({
   confirmedReviewItemIds,
   onChangeAssignments,
   onConfirmReviewItem,
+  showSuggestionDetails = true,
 }: SplitAssignmentProps) {
   const totals = calculateMemberTotals({
     items: draft.items,
@@ -152,7 +154,7 @@ export function SplitAssignment({
                 ) : null}
                 <ItemEnrichmentHint item={item} />
                 <p className="muted">${(item.lineTotalCents / 100).toFixed(2)}</p>
-                {proposal ? (
+                {proposal && showSuggestionDetails ? (
                   <>
                     <span className={unresolved ? "status-badge status-badge-warn" : "status-badge status-badge-ok"}>
                       {unresolved ? "Needs review" : "Auto-assigned"}
@@ -268,7 +270,7 @@ export function SplitAssignment({
                 {proposal?.needsReview ? (
                   <button
                     type="button"
-                    className={unresolved ? "chip chip-active review-toggle" : "chip review-toggle"}
+                    className={`${unresolved ? "chip chip-active review-toggle" : "chip review-toggle"} mobile-full-width`}
                     style={{ marginTop: "0.4rem" }}
                     onClick={() => onConfirmReviewItem(item.id)}
                   >

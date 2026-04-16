@@ -27,7 +27,7 @@ export default function ResolveStepPage() {
                     {proposal.reason} · confidence {(proposal.confidence * 100).toFixed(0)}%
                   </p>
                 </div>
-                <button type="button" className={confirmed ? "chip chip-active" : "chip"} onClick={() => confirmReviewItem(proposal.itemId)}>
+                <button type="button" className={`${confirmed ? "chip chip-active" : "chip"} mobile-full-width`} onClick={() => confirmReviewItem(proposal.itemId)}>
                   {confirmed ? "Reviewed" : "Mark Reviewed"}
                 </button>
               </article>
@@ -38,8 +38,8 @@ export default function ResolveStepPage() {
       <p className="muted" style={{ marginTop: "0.8rem" }}>
         Remaining unresolved items: {unresolvedReviewItemIds.length}
       </p>
-      <div className="chip-row" style={{ marginTop: "0.8rem" }}>
-        <button type="button" className="chip chip-active" onClick={() => router.push("/flow/decision")}>
+      <div className="chip-row mobile-actions" style={{ marginTop: "0.8rem" }}>
+        <button type="button" className="chip chip-active mobile-full-width" onClick={() => router.push("/flow/decision")}>
           Continue to Decision
         </button>
       </div>

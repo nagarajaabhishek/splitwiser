@@ -1,7 +1,22 @@
+import { lookupWalmartByUpc } from "@/lib/vision/catalog/walmart";
+import { inferMerchantProfile } from "@/lib/vision/merchant-templates";
+
 export type CatalogLookupResult = {
   name: string;
   provider: string;
   confidence: number;
+  imageUrl?: string;
+  upc?: string;
+  gtin?: string;
+  catalogItemId?: string;
+};
+
+export type CatalogLookupDiagnostics = {
+  providerUsed?: string;
+  attemptedProviders: string[];
+  fallbackReason?: string;
+  fallbackUsed: boolean;
+  providerScorecard: Array<{ provider: string; latencyMs: number; hit: boolean; error?: string }>;
 };
 
 function digitsOnly(value: string): string {
@@ -51,26 +66,81 @@ async function lookupUpcItemDb(upc: string): Promise<CatalogLookupResult | null>
   return { name: title, provider: "upcitemdb", confidence: 0.88 };
 }
 
+async function lookupWalmart(upc: string): Promise<CatalogLookupResult | null> {
+  const approved = (process.env.CATALOG_OFFICIAL_APIS_APPROVED ?? "false") === "true";
+  if (!approved) return null;
+  const enabled = (process.env.WALMART_CATALOG_ENABLED ?? "false") === "true";
+  if (!enabled) return null;
+  return lookupWalmartByUpc(upc);
+}
+
+type Provider = {
+  name: string;
+  run: (upc: string) => Promise<CatalogLookupResult | null>;
+};
+
+function allProviders(): Provider[] {
+  return [
+    { name: "walmart", run: lookupWalmart },
+    { name: "openfoodfacts", run: lookupOpenFoodFacts },
+    { name: "upcitemdb", run: lookupUpcItemDb },
+  ];
+}
+
 /**
  * Try catalog providers in order until a product name is found.
  */
 export async function lookupProductByUpc(rawUpc: string | null | undefined): Promise<CatalogLookupResult | null> {
+  const detailed = await lookupProductByUpcDetailed(rawUpc, {});
+  return detailed.result;
+}
+
+export async function lookupProductByUpcDetailed(
+  rawUpc: string | null | undefined,
+  options?: { merchantName?: string },
+): Promise<{ result: CatalogLookupResult | null; diagnostics: CatalogLookupDiagnostics }> {
   const upc = digitsOnly(rawUpc ?? "");
-  if (upc.length < 8) return null;
+  if (upc.length < 8) return { result: null, diagnostics: { attemptedProviders: [], fallbackUsed: false, providerScorecard: [] } };
 
-  try {
-    const off = await lookupOpenFoodFacts(upc);
-    if (off) return off;
-  } catch {
-    // ignore network errors
+  const attemptedProviders: string[] = [];
+  const failures: string[] = [];
+  const providerScorecard: Array<{ provider: string; latencyMs: number; hit: boolean; error?: string }> = [];
+  const profile = inferMerchantProfile(options?.merchantName ?? "");
+  const providersByName = new Map(allProviders().map((provider) => [provider.name, provider]));
+  const chain = profile.catalogProviderOrder.map((name) => providersByName.get(name)).filter((entry): entry is Provider => Boolean(entry));
+
+  for (const provider of chain) {
+    attemptedProviders.push(provider.name);
+    const started = Date.now();
+    try {
+      const result = await provider.run(upc);
+      providerScorecard.push({ provider: provider.name, latencyMs: Date.now() - started, hit: Boolean(result) });
+      if (result) {
+        return {
+          result,
+          diagnostics: {
+            providerUsed: result.provider,
+            attemptedProviders,
+            fallbackReason: failures.length > 0 ? failures.join("|") : undefined,
+            fallbackUsed: failures.length > 0 || attemptedProviders.length > 1,
+            providerScorecard,
+          },
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${provider.name}:${message}`);
+      providerScorecard.push({ provider: provider.name, latencyMs: Date.now() - started, hit: false, error: message });
+    }
   }
 
-  try {
-    const udb = await lookupUpcItemDb(upc);
-    if (udb) return udb;
-  } catch {
-    // ignore
-  }
-
-  return null;
+  return {
+    result: null,
+    diagnostics: {
+      attemptedProviders,
+      fallbackReason: failures.length > 0 ? failures.join("|") : undefined,
+      fallbackUsed: attemptedProviders.length > 1,
+      providerScorecard,
+    },
+  };
 }

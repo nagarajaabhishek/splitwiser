@@ -129,6 +129,15 @@ h3 {
   gap: 0.4rem;
 }
 
+.stack-mobile {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.mobile-full-width {
+  width: auto;
+}
+
 .chip {
   border: 1px solid #b8d8c1;
   border-radius: 999px;
@@ -393,25 +402,28 @@ h3 {
 
 @media (max-width: 720px) {
   .shell {
-    padding: 1rem 0.7rem 2rem;
+    padding: 0.85rem 0.65rem 1.8rem;
   }
 
   .glass-card {
-    border-radius: 16px;
-    padding: 0.85rem;
+    border-radius: 14px;
+    padding: 0.8rem;
   }
 
   .item-row {
-    padding: 0.7rem;
+    padding: 0.65rem;
+    gap: 0.6rem;
   }
 
   .chip {
     min-height: 44px;
-    padding: 0.5rem 0.9rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
   }
 
   .text-input {
     min-height: 42px;
+    font-size: 16px;
   }
 
   .kpi-row {
@@ -420,5 +432,41 @@ h3 {
 
   .game-member-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .stack-mobile {
+    flex-direction: column;
+  }
+
+  .mobile-full-width {
+    width: 100%;
+  }
+
+  .chip-row.mobile-actions .chip,
+  .chip-row.mobile-actions .chip-active {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .flow-steps {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 0.2rem;
+  }
+
+  .flow-steps .status-badge {
+    white-space: nowrap;
+  }
+
+  .item-left,
+  .item-right {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .editor-grid,
+  .custom-grid {
+    grid-template-columns: 1fr;
   }
 }

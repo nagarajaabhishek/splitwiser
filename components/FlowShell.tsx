@@ -8,7 +8,7 @@ import { useFlow } from "@/lib/flow/context";
 const steps = [
   { path: "/flow/upload", label: "Upload & Parse" },
   { path: "/flow/review", label: "Review Receipt" },
-  { path: "/flow/suggest", label: "AI Suggestions" },
+  { path: "/flow/suggest", label: "Assign Item" },
   { path: "/flow/resolve", label: "Resolve Review" },
   { path: "/flow/decision", label: "Finalize/Split Later" },
 ];
@@ -38,14 +38,22 @@ export function FlowShell({ children }: { children: React.ReactNode }) {
   }, [pathname, hasDraft, hasAssignments, router]);
 
   const currentStep = useMemo(() => steps.findIndex((step) => step.path === pathname), [pathname]);
+  const previousStepPath = currentStep > 0 ? steps[currentStep - 1]?.path : null;
 
   return (
     <main className="shell">
       <section className="chip-row" style={{ justifyContent: "space-between", marginBottom: "1rem" }}>
-        <Link href="/" className="chip">
-          Back to Dashboard
-        </Link>
-        <Link href="https://abhisheknagaraja.com/" className="chip" target="_blank" rel="noopener noreferrer">
+        <div className="chip-row mobile-actions" style={{ flex: 1 }}>
+          <Link href="/" className="chip">
+            Back to Dashboard
+          </Link>
+          {previousStepPath ? (
+            <button type="button" className="chip" onClick={() => router.push(previousStepPath)}>
+              Back
+            </button>
+          ) : null}
+        </div>
+        <Link href="https://abhisheknagaraja.com/" className="chip mobile-full-width" target="_blank" rel="noopener noreferrer">
           About Me
         </Link>
       </section>

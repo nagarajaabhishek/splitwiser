@@ -4,6 +4,7 @@ import { runSplitAgent, runSplitAgentAutonomous, type LearnedDefaultRecord } fro
 import { computeSettlements } from "@/lib/engine/settlement";
 import type { ItemAssignment, ItemEnrichment, Member, NormalizedBillDraft, NormalizedBillItem } from "@/lib/schemas/bill";
 import { listLearnedDefaults, upsertLearnedDefaults } from "@/lib/db/learned-defaults";
+import { upsertLabelCorrections } from "@/lib/db/label-corrections";
 import { randomBytes } from "node:crypto";
 import { logActivity } from "@/lib/db/activity";
 import { applyCategorizationToDraft } from "@/lib/categorization/infer";
@@ -41,6 +42,26 @@ function pickPrimaryAssignee(assignment: ItemAssignment | undefined): string | n
   return assignment.memberIds[0];
 }
 
+function buildLabelCorrectionEntries(params: { householdId: string; merchantName: string; draft: NormalizedBillDraft }) {
+  const { householdId, merchantName, draft } = params;
+  return draft.items
+    .map((item) => {
+      const source = (item.originalLabel ?? "").trim();
+      const corrected = item.label.trim();
+      if (!source || !corrected || source.toLowerCase() === corrected.toLowerCase()) return null;
+      return {
+        householdId,
+        merchantName,
+        sourceLabel: source,
+        correctedLabel: corrected,
+        confidence: 0.94,
+      };
+    })
+    .filter((entry): entry is { householdId: string; merchantName: string; sourceLabel: string; correctedLabel: string; confidence: number } =>
+      Boolean(entry),
+    );
+}
+
 export async function createFinalizedBill(params: {
   householdId: string;
   draft: NormalizedBillDraft;
@@ -58,6 +79,7 @@ export async function createFinalizedBill(params: {
   });
 
   const createItems = draft.items.map((item) => draftItemToBillItemCreate(item, assignments.find((entry) => entry.itemId === item.id)));
+  const labelCorrections = buildLabelCorrectionEntries({ householdId, merchantName: draft.merchantName, draft });
   const createTransactions = agentResult.totals.memberTotals.map((entry) => ({
     memberId: entry.memberId,
     subtotalCents: entry.subtotalCents,
@@ -128,12 +150,13 @@ export async function createFinalizedBill(params: {
   }
 
   await upsertLearnedDefaults(agentResult.learnedDefaultsUpserts);
+  await upsertLabelCorrections(labelCorrections);
   await logActivity({
     householdId,
     billId: bill.id,
     type: "expense_finalized",
     message: `Finalized expense ${bill.merchantName} for $${(bill.totalCents / 100).toFixed(2)}`,
-    metadata: { transactionCount: bill.transactions.length },
+    metadata: { transactionCount: bill.transactions.length, manualLabelEditsCount: labelCorrections.length },
   });
 
   return {
@@ -167,6 +190,7 @@ export async function createSplitLaterBill(params: {
   assignments: ItemAssignment[];
 }) {
   const { householdId, draft, assignments } = params;
+  const labelCorrections = buildLabelCorrectionEntries({ householdId, merchantName: draft.merchantName, draft });
   const bill = await prisma.bill.create({
     data: {
       householdId,
@@ -188,7 +212,9 @@ export async function createSplitLaterBill(params: {
     billId: bill.id,
     type: "expense_split_later",
     message: `Saved split-later draft for ${bill.merchantName}`,
+    metadata: { manualLabelEditsCount: labelCorrections.length },
   });
+  await upsertLabelCorrections(labelCorrections);
 
   return {
     id: bill.id,

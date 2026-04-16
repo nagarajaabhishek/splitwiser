@@ -1,8 +1,15 @@
 import { normalizeLabel } from "@/lib/engine/agent";
 import { normalizedBillDraftSchema, type NormalizedBillDraft } from "@/lib/schemas/bill";
+import { inferMerchantProfile } from "@/lib/vision/merchant-templates";
 
 export interface VisionProvider {
-  extractBill(file: File): Promise<NormalizedBillDraft>;
+  extractBill(
+    file: File,
+    options?: {
+      retryMissingOnly?: boolean;
+      knownLineHints?: string[];
+    },
+  ): Promise<NormalizedBillDraft>;
 }
 
 export type VisionProviderName = "stub" | "gemini" | "openai";
@@ -27,16 +34,17 @@ export type ParsedVisionDraft = {
   subtotal?: number;
   tax?: number;
   total?: number;
+  itemsSoldCount?: number;
   items: ParsedVisionItem[];
 };
 
 export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDraft {
-  const normalizedItems = input.items
+  const merchantProfile = inferMerchantProfile(input.merchantName ?? "");
+  const rawItems = input.items
     .map((item, index) => {
       const label = item.label.trim() || `Item ${index + 1}`;
-      const lineTotalCents = Math.max(0, Math.round(item.lineTotal * 100));
       const quantity = Math.max(1, Math.round(item.quantity ?? 1));
-      const unitPriceCents = Math.round(lineTotalCents / quantity);
+      const lineTotalCentsRaw = Math.max(0, Math.round(item.lineTotal * 100));
       const rawLineText = item.rawLineText?.trim();
       const upc = item.upc?.trim() || undefined;
       const itemCode = item.itemCode?.trim() || undefined;
@@ -46,36 +54,73 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
         label,
         normalizedLabel: normalizeLabel(label),
         quantity,
-        unitPriceCents,
-        lineTotalCents,
+        lineTotalCentsRaw,
         originalLabel: label,
         rawLineText: rawLineText || undefined,
         upc: upc ?? null,
         itemCode: itemCode ?? null,
         department: department ?? null,
-        enrichment: {
-          source: "none" as const,
-          needsReview: false,
-        },
       };
     })
-    .filter((item) => item.lineTotalCents > 0);
+    .filter((item) => item.lineTotalCentsRaw > 0);
 
-  const uniqueItems = normalizedItems.filter(
-    (item, index, arr) =>
-      arr.findIndex((entry) => entry.label.toLowerCase() === item.label.toLowerCase() && entry.lineTotalCents === item.lineTotalCents) ===
-      index,
-  );
-
-  // Use summed item totals as source of truth; model-reported subtotal/tax/total often drifts.
-  const itemsSubtotalCents = uniqueItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
-  const reportedSubtotalCents = input.subtotal !== undefined ? Math.max(0, Math.round(input.subtotal * 100)) : itemsSubtotalCents;
-  const subtotalCents = itemsSubtotalCents > 0 ? itemsSubtotalCents : reportedSubtotalCents;
-
+  const reportedSubtotalCents = input.subtotal !== undefined ? Math.max(0, Math.round(input.subtotal * 100)) : undefined;
   const reportedTaxCents = input.tax !== undefined ? Math.max(0, Math.round(input.tax * 100)) : 0;
-  const reportedTotalCents = input.total !== undefined ? Math.max(0, Math.round(input.total * 100)) : subtotalCents + reportedTaxCents;
+  const reportedTotalCents = input.total !== undefined ? Math.max(0, Math.round(input.total * 100)) : undefined;
+  const expectedSubtotalCents =
+    reportedSubtotalCents ?? (reportedTotalCents !== undefined ? Math.max(0, reportedTotalCents - reportedTaxCents) : undefined);
+
+  const itemsSubtotalAssumingLineTotal = rawItems.reduce((sum, item) => sum + item.lineTotalCentsRaw, 0);
+  const itemsSubtotalAssumingUnitPrice =
+    rawItems.reduce((sum, item) => sum + (item.quantity > 1 ? item.lineTotalCentsRaw * item.quantity : item.lineTotalCentsRaw), 0);
+
+  const deltaAssumingLineTotal =
+    expectedSubtotalCents !== undefined ? Math.abs(itemsSubtotalAssumingLineTotal - expectedSubtotalCents) : 0;
+  const deltaAssumingUnitPrice =
+    expectedSubtotalCents !== undefined ? Math.abs(itemsSubtotalAssumingUnitPrice - expectedSubtotalCents) : 0;
+
+  const treatLineTotalAsUnitPrice =
+    expectedSubtotalCents !== undefined &&
+    itemsSubtotalAssumingUnitPrice > 0 &&
+    deltaAssumingUnitPrice + 50 < deltaAssumingLineTotal;
+
+  const normalizedItems = rawItems.map((item) => {
+    const lineTotalCents = treatLineTotalAsUnitPrice && item.quantity > 1 ? item.lineTotalCentsRaw * item.quantity : item.lineTotalCentsRaw;
+    const unitPriceCents = Math.round(lineTotalCents / item.quantity);
+    return {
+      id: item.id,
+      label: item.label,
+      normalizedLabel: item.normalizedLabel,
+      quantity: item.quantity,
+      unitPriceCents,
+      lineTotalCents,
+      originalLabel: item.originalLabel,
+      rawLineText: item.rawLineText,
+      upc: item.upc,
+      itemCode: item.itemCode,
+      department: item.department,
+      enrichment: {
+        source: "none" as const,
+        needsReview: false,
+      },
+    };
+  });
+
+  // Keep repeated lines as-is. Identical label+price rows can be legitimate multi-buys.
+  const itemsSubtotalCents = normalizedItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+
+  let subtotalCents =
+    itemsSubtotalCents > 0
+      ? itemsSubtotalCents
+      : reportedSubtotalCents ??
+        (reportedTotalCents !== undefined ? Math.max(0, reportedTotalCents - reportedTaxCents) : itemsSubtotalCents);
+  if (subtotalCents === 0 && itemsSubtotalCents > 0) subtotalCents = itemsSubtotalCents;
+
+  const totalFromParts = subtotalCents + reportedTaxCents;
+  const totalSeed = reportedTotalCents ?? totalFromParts;
+  const reportedTotalFloor = Math.max(totalSeed, subtotalCents);
   let taxCents = reportedTaxCents;
-  let totalCents = reportedTotalCents;
+  let totalCents = reportedTotalFloor;
 
   // Reconcile to ensure strict schema consistency.
   if (totalCents < subtotalCents) {
@@ -87,14 +132,18 @@ export function normalizeVisionDraft(input: ParsedVisionDraft): NormalizedBillDr
   }
 
   return normalizedBillDraftSchema.parse({
-    merchantName: input.merchantName?.trim() || "Unknown Merchant",
+    merchantName: merchantProfile.normalizedMerchantName || input.merchantName?.trim() || "Unknown Merchant",
     billDate: input.billDate ? new Date(input.billDate).toISOString() : new Date().toISOString(),
     subtotalCents,
     taxCents,
     totalCents,
+    receiptItemCount:
+      input.itemsSoldCount !== undefined && Number.isFinite(input.itemsSoldCount)
+        ? Math.max(1, Math.round(input.itemsSoldCount))
+        : undefined,
     items:
-      uniqueItems.length > 0
-        ? uniqueItems
+      normalizedItems.length > 0
+        ? normalizedItems
         : [
             {
               id: "item-1",

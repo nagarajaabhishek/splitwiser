@@ -21,6 +21,7 @@ function SuggestStepContent() {
     persistStatus,
     agentObservability,
   } = useFlow();
+  const showAiSuggestions = Boolean(agentObservability?.aiEligible);
 
   useEffect(() => {
     const resumeBillId = searchParams.get("resumeBillId");
@@ -52,14 +53,24 @@ function SuggestStepContent() {
         confirmedReviewItemIds={confirmedReviewItemIds}
         onChangeAssignments={setAssignments}
         onConfirmReviewItem={confirmReviewItem}
+        showSuggestionDetails={showAiSuggestions}
       />
       <section className="glass-card section-gap">
-        <h2>AI Observability</h2>
-        <p className="muted">Provider: {agentObservability?.providerUsed ?? "deterministic"}</p>
-        <p className="muted">Unresolved reviews: {agentObservability?.unresolvedCount ?? 0}</p>
+        <h2>{showAiSuggestions ? "AI Suggestions Enabled" : "Manual Suggestions Mode"}</h2>
+        {showAiSuggestions ? (
+          <>
+            <p className="muted">Provider: {agentObservability?.providerUsed ?? "deterministic"}</p>
+            <p className="muted">Unresolved reviews: {agentObservability?.unresolvedCount ?? 0}</p>
+          </>
+        ) : (
+          <p className="muted">
+            {agentObservability?.aiHiddenReason ??
+              "AI suggestions are hidden until enough order history and member context are available."}
+          </p>
+        )}
         {persistStatus ? <p className="muted">{persistStatus}</p> : null}
-        <div className="chip-row" style={{ marginTop: "0.8rem" }}>
-          <button type="button" className="chip chip-active" onClick={() => router.push("/flow/resolve")}>
+        <div className="chip-row mobile-actions" style={{ marginTop: "0.8rem" }}>
+          <button type="button" className="chip chip-active mobile-full-width" onClick={() => router.push("/flow/resolve")}>
             Continue to Resolve
           </button>
         </div>
