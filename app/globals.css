@@ -95,6 +95,17 @@ h3 {
   cursor: pointer;
 }
 
+.upload-cta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.upload-zone-secondary {
+  border-style: solid;
+  background: #ffffff;
+}
+
 .error {
   color: var(--danger);
   margin-top: 0.5rem;
@@ -413,6 +424,10 @@ h3 {
   .item-row {
     padding: 0.65rem;
     gap: 0.6rem;
+  }
+
+  .upload-cta-grid {
+    grid-template-columns: 1fr;
   }
 
   .chip {

@@ -11,12 +11,14 @@ type BillUploadProps = {
 
 export function BillUpload({ onParsed }: BillUploadProps) {
   const MAX_FILES = 10;
+  const CAMERA_ACCEPT = /^image\//i;
   const [isUploading, setIsUploading] = useState(false);
   const [statusText, setStatusText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [lastFiles, setLastFiles] = useState<File[]>([]);
   const [batchResult, setBatchResult] = useState<BillUploadBatchResponse | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const toFriendlyMessage = (message: string) => {
     if (message.includes("UPLOAD_UNSUPPORTED_MIME")) return "Unsupported file type. Please upload an image or PDF.";
@@ -25,15 +27,21 @@ export function BillUpload({ onParsed }: BillUploadProps) {
     return message;
   };
 
-  const handleFiles = async (files: File[]) => {
+  const handleFiles = async (files: File[], source: "upload" | "camera" = "upload") => {
     setError(null);
     setBatchResult(null);
     setLastFiles(files);
     setIsUploading(true);
-    setStatusText("Uploading...");
+    setStatusText(source === "camera" ? "Processing camera capture..." : "Uploading...");
     try {
       if (files.length > MAX_FILES) {
         throw new Error(`Too many files selected. Maximum is ${MAX_FILES}.`);
+      }
+      if (source === "camera" && files.some((file) => !CAMERA_ACCEPT.test(file.type))) {
+        throw new Error("Camera capture only supports images. Use Upload File for PDFs.");
+      }
+      if (files.length === 0) {
+        throw new Error("No file selected. Please try again.");
       }
       const formData = new FormData();
       files.forEach((file) => formData.append("files", file));
@@ -93,18 +101,42 @@ export function BillUpload({ onParsed }: BillUploadProps) {
   return (
     <section className="glass-card">
       <h2>Ingest Bill</h2>
-      <p className="muted">Upload an image/PDF receipt to run the vision parser into a review-ready draft.</p>
-      <button
-        type="button"
-        className="upload-zone"
-        onClick={() => inputRef.current?.click()}
-        disabled={isUploading}
-      >
-        <UploadCloud size={20} />
-        <span>{isUploading ? "Extracting line items..." : "Drop or click to upload a receipt"}</span>
-      </button>
+      <p className="muted">Scan with your phone camera or upload an image/PDF receipt to create a review-ready draft.</p>
+      <div className="upload-cta-grid" style={{ marginTop: "0.8rem" }}>
+        <button
+          type="button"
+          className="upload-zone upload-zone-secondary"
+          onClick={() => cameraInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          <UploadCloud size={20} />
+          <span>{isUploading ? "Extracting line items..." : "Scan Bill (Camera)"}</span>
+        </button>
+        <button
+          type="button"
+          className="upload-zone"
+          onClick={() => uploadInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          <UploadCloud size={20} />
+          <span>{isUploading ? "Extracting line items..." : "Upload File (Image/PDF)"}</span>
+        </button>
+      </div>
       <input
-        ref={inputRef}
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) {
+            void handleFiles(files, "camera");
+          }
+        }}
+      />
+      <input
+        ref={uploadInputRef}
         type="file"
         accept="image/*,.pdf"
         multiple
@@ -112,7 +144,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           if (files.length > 0) {
-            void handleFiles(files);
+            void handleFiles(files, "upload");
           }
         }}
       />
