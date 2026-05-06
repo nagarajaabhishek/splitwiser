@@ -171,6 +171,16 @@ export async function extractWithVisionRouter(file: File): Promise<{
       },
     };
   } catch (primaryError) {
+    // OpenAI does not support PDFs; skip it and fall straight to stub rather than burning a doomed call.
+    if (file.type === "application/pdf" && fallback === "openai") {
+      const draft = await providers.stub.extractBill(file);
+      return {
+        draft,
+        providerUsed: "stub" as const,
+        fallbackReason: `${primary}:${String(primaryError)}|${fallback}:pdf-unsupported|stub:emergency-fallback`,
+      };
+    }
+
     try {
       let draft = await withTimeout(providers[fallback].extractBill(file), timeoutMs);
       const traces: HybridPassTrace[] = [{ pass: "primary", provider: fallback, itemCount: draft.items.length }];
@@ -215,7 +225,12 @@ export async function extractWithVisionRouter(file: File): Promise<{
         },
       };
     } catch (fallbackError) {
-      throw new Error(`VISION_ROUTER_FAILED:${primary}:${String(primaryError)}|${fallback}:${String(fallbackError)}`);
+      const draft = await providers.stub.extractBill(file);
+      return {
+        draft,
+        providerUsed: "stub" as const,
+        fallbackReason: `${primary}:${String(primaryError)}|${fallback}:${String(fallbackError)}|stub:emergency-fallback`,
+      };
     }
   }
 }

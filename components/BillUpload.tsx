@@ -55,6 +55,10 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       setBatchResult(payload);
       const singleDiagnostics = payload.successes[0]?.diagnostics;
       const hardGate = singleDiagnostics?.parseVerification?.hardReviewRequired;
+      const isEmergencyStub =
+        payload.successes.length === 1 &&
+        singleDiagnostics?.providerUsed === "stub" &&
+        !!singleDiagnostics?.fallbackReason;
       if (payload.successes.length === 1) {
         const single = payload.successes[0];
         onParsed({ source: single.source, draft: single.draft });
@@ -64,11 +68,13 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       setStatusText(
         payload.successes.length > 1
           ? `Parsed ${payload.successes.length} files. Choose one draft to continue.`
-          : hardGate
-            ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} and flagged as high-risk. Review all line items before continuing.${fallbackSuffix}`
-          : payload.successes[0]?.diagnostics?.parseVerification?.needsReview
-            ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} with verification warnings. Please review item list and totals.${fallbackSuffix}`
-            : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.${fallbackSuffix}`,
+          : isEmergencyStub
+            ? "AI parsing failed. Demo data loaded — please enter bill details manually."
+            : hardGate
+              ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} and flagged as high-risk. Review all line items before continuing.${fallbackSuffix}`
+              : payload.successes[0]?.diagnostics?.parseVerification?.needsReview
+                ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} with verification warnings. Please review item list and totals.${fallbackSuffix}`
+                : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.${fallbackSuffix}`,
       );
     } catch (err) {
       setError(toFriendlyMessage(err instanceof Error ? err.message : "Unknown upload error"));
@@ -97,6 +103,12 @@ export function BillUpload({ onParsed }: BillUploadProps) {
     setError(null);
     setStatusText("Demo parser loaded.");
   };
+
+  const emergencyStubActive =
+    batchResult !== null &&
+    batchResult.successes.length === 1 &&
+    batchResult.successes[0]?.diagnostics?.providerUsed === "stub" &&
+    !!batchResult.successes[0]?.diagnostics?.fallbackReason;
 
   return (
     <section className="glass-card">
@@ -148,7 +160,17 @@ export function BillUpload({ onParsed }: BillUploadProps) {
           }
         }}
       />
-      {statusText ? <p className="muted" style={{ marginTop: "0.55rem" }}>{statusText}</p> : null}
+      {statusText ? (
+        <p
+          className="muted"
+          style={{
+            marginTop: "0.55rem",
+            ...(emergencyStubActive ? { color: "var(--warning, #b45309)" } : {}),
+          }}
+        >
+          {statusText}
+        </p>
+      ) : null}
       {lastFiles.length > 0 ? (
         <p className="muted" style={{ marginTop: "0.4rem" }}>
           Selected {lastFiles.length} file{lastFiles.length === 1 ? "" : "s"} (max {MAX_FILES})
