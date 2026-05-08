@@ -3,6 +3,19 @@ import { billUploadBatchResponseSchema, billUploadResponseSchema } from "@/lib/s
 import { extractWithVisionRouter } from "@/lib/vision";
 import { normalizeDraftLabels } from "@/lib/vision/label-normalizer";
 import { verifyParsedDraft } from "@/lib/vision/verification";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const heicConvert = require("heic-convert") as (opts: { buffer: Buffer; format: "JPEG"; quality: number }) => Promise<ArrayBuffer>;
+
+async function normalizeFileFormat(file: File): Promise<File> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const isHeic = ext === "heic" || ext === "heif" ||
+    file.type === "image/heic" || file.type === "image/heif";
+  if (!isHeic) return file;
+  const inputBuffer = Buffer.from(await file.arrayBuffer());
+  const outputBuffer = await heicConvert({ buffer: inputBuffer, format: "JPEG", quality: 0.92 });
+  const jpegName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+  return new File([outputBuffer], jpegName, { type: "image/jpeg" });
+}
 
 const MAX_FILES = 10;
 
@@ -86,15 +99,15 @@ export async function POST(request: Request) {
     }> = [];
     const failures: Array<{ fileName: string; code: string; error: string }> = [];
 
-    for (const file of files) {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-      const isHeic = ext === "heic" || ext === "heif" ||
-        file.type === "image/heic" || file.type === "image/heif";
-      if (isHeic) {
+    for (const rawFile of files) {
+      let file: File;
+      try {
+        file = await normalizeFileFormat(rawFile);
+      } catch {
         failures.push({
-          fileName: file.name,
+          fileName: rawFile.name,
           code: "UPLOAD_UNSUPPORTED_MIME",
-          error: "HEIC_NOT_SUPPORTED",
+          error: "Could not convert this image format. Try exporting as JPEG.",
         });
         continue;
       }
