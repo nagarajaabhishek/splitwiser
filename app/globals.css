@@ -80,30 +80,94 @@ h3 {
   font-size: 0.93rem;
 }
 
-.upload-zone {
-  margin-top: 0.8rem;
-  border: 1px dashed #80bf95;
-  border-radius: 16px;
-  width: 100%;
-  color: var(--text);
+.upload-dropzone {
+  border: 2px dashed #80bf95;
+  border-radius: 20px;
   background: #f6fcf7;
-  min-height: 88px;
+  min-height: 160px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text);
+  margin-top: 0.8rem;
 }
 
-.upload-cta-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
+.upload-dropzone:hover,
+.upload-dropzone-dragover {
+  background: #edf7ef;
+  border-color: #4caf6e;
 }
 
-.upload-zone-secondary {
+.upload-dropzone-uploading {
+  cursor: default;
+  opacity: 0.75;
   border-style: solid;
-  background: #ffffff;
+}
+
+.file-preview-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.file-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid #dcecdf;
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  background: #fbfefb;
+  font-size: 0.9rem;
+}
+
+.file-preview-icon {
+  flex-shrink: 0;
+  color: #4caf6e;
+}
+
+.file-preview-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.file-preview-size {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.file-preview-remove {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 4px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+.file-preview-remove:hover {
+  color: var(--danger);
+}
+
+.upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .error {
@@ -484,4 +548,9 @@ h3 {
   .custom-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { UploadCloud } from "lucide-react";
+import { Camera, FileText, Image as ImageIcon, Loader2, UploadCloud, X } from "lucide-react";
 import { applyCategorizationToDraft } from "@/lib/categorization/infer";
 import type { BillUploadBatchResponse, BillUploadResponse } from "@/lib/schemas/bill";
 
@@ -9,13 +9,21 @@ type BillUploadProps = {
   onParsed: (response: BillUploadResponse) => void;
 };
 
+const MAX_FILES = 10;
+const CAMERA_ACCEPT = /^image\//i;
+
+function formatBytes(bytes: number) {
+  return bytes < 1024 * 1024
+    ? `${(bytes / 1024).toFixed(0)} KB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function BillUpload({ onParsed }: BillUploadProps) {
-  const MAX_FILES = 10;
-  const CAMERA_ACCEPT = /^image\//i;
   const [isUploading, setIsUploading] = useState(false);
   const [statusText, setStatusText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [lastFiles, setLastFiles] = useState<File[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [batchResult, setBatchResult] = useState<BillUploadBatchResponse | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -27,10 +35,23 @@ export function BillUpload({ onParsed }: BillUploadProps) {
     return message;
   };
 
+  const addFiles = (incoming: File[]) => {
+    setPendingFiles((prev) => {
+      const merged = [...prev, ...incoming];
+      return merged.slice(0, MAX_FILES);
+    });
+    setError(null);
+    setBatchResult(null);
+    setStatusText("");
+  };
+
+  const removeFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleFiles = async (files: File[], source: "upload" | "camera" = "upload") => {
     setError(null);
     setBatchResult(null);
-    setLastFiles(files);
     setIsUploading(true);
     setStatusText(source === "camera" ? "Processing camera capture..." : "Uploading...");
     try {
@@ -53,12 +74,13 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       }
       const payload = json as BillUploadBatchResponse;
       setBatchResult(payload);
+      setPendingFiles([]);
       const singleDiagnostics = payload.successes[0]?.diagnostics;
       const hardGate = singleDiagnostics?.parseVerification?.hardReviewRequired;
-      const isEmergencyStub =
-        payload.successes.length === 1 &&
-        singleDiagnostics?.providerUsed === "stub" &&
-        !!singleDiagnostics?.fallbackReason;
+      const isStub = (s: (typeof payload.successes)[number]) =>
+        s.diagnostics?.providerUsed === "stub" && !!s.diagnostics?.fallbackReason;
+      const allStub = payload.successes.length > 0 && payload.successes.every(isStub);
+      const isEmergencyStub = payload.successes.length === 1 && isStub(payload.successes[0]!);
       if (payload.successes.length === 1) {
         const single = payload.successes[0];
         onParsed({ source: single.source, draft: single.draft });
@@ -66,15 +88,17 @@ export function BillUpload({ onParsed }: BillUploadProps) {
       const catalogFallback = singleDiagnostics?.labelNormalization?.catalogFallbackReason;
       const fallbackSuffix = catalogFallback ? " Catalog fallback was used." : "";
       setStatusText(
-        payload.successes.length > 1
-          ? `Parsed ${payload.successes.length} files. Choose one draft to continue.`
-          : isEmergencyStub
-            ? "AI parsing failed. Demo data loaded — please enter bill details manually."
-            : hardGate
-              ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} and flagged as high-risk. Review all line items before continuing.${fallbackSuffix}`
-              : payload.successes[0]?.diagnostics?.parseVerification?.needsReview
-                ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} with verification warnings. Please review item list and totals.${fallbackSuffix}`
-                : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.${fallbackSuffix}`,
+        allStub && payload.successes.length > 1
+          ? "AI parsing failed for all files. Demo data loaded — please enter bill details manually."
+          : payload.successes.length > 1
+            ? `Parsed ${payload.successes.length} files. Choose one draft to continue.`
+            : isEmergencyStub
+              ? "AI parsing failed. Demo data loaded — please enter bill details manually."
+              : hardGate
+                ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} and flagged as high-risk. Review all line items before continuing.${fallbackSuffix}`
+                : payload.successes[0]?.diagnostics?.parseVerification?.needsReview
+                  ? `Parsed via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"} with verification warnings. Please review item list and totals.${fallbackSuffix}`
+                  : `Parsed successfully via ${payload.successes[0]?.diagnostics?.providerUsed ?? "vision"}.${fallbackSuffix}`,
       );
     } catch (err) {
       setError(toFriendlyMessage(err instanceof Error ? err.message : "Unknown upload error"));
@@ -104,63 +128,141 @@ export function BillUpload({ onParsed }: BillUploadProps) {
     setStatusText("Demo parser loaded.");
   };
 
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!isUploading) setIsDragOver(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (isUploading) return;
+    const dropped = Array.from(e.dataTransfer.files);
+    addFiles(dropped);
+  };
+
   const emergencyStubActive =
     batchResult !== null &&
-    batchResult.successes.length === 1 &&
-    batchResult.successes[0]?.diagnostics?.providerUsed === "stub" &&
-    !!batchResult.successes[0]?.diagnostics?.fallbackReason;
+    batchResult.successes.length > 0 &&
+    batchResult.successes.every(
+      (s) => s.diagnostics?.providerUsed === "stub" && !!s.diagnostics?.fallbackReason,
+    );
+
+  const dropzoneClass = [
+    "upload-dropzone",
+    isDragOver ? "upload-dropzone-dragover" : "",
+    isUploading ? "upload-dropzone-uploading" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section className="glass-card">
       <h2>Ingest Bill</h2>
-      <p className="muted">Scan with your phone camera or upload an image/PDF receipt to create a review-ready draft.</p>
-      <div className="upload-cta-grid" style={{ marginTop: "0.8rem" }}>
-        <button
-          type="button"
-          className="upload-zone upload-zone-secondary"
-          onClick={() => cameraInputRef.current?.click()}
-          disabled={isUploading}
-        >
-          <UploadCloud size={20} />
-          <span>{isUploading ? "Extracting line items..." : "Scan Bill (Camera)"}</span>
-        </button>
-        <button
-          type="button"
-          className="upload-zone"
-          onClick={() => uploadInputRef.current?.click()}
-          disabled={isUploading}
-        >
-          <UploadCloud size={20} />
-          <span>{isUploading ? "Extracting line items..." : "Upload File (Image/PDF)"}</span>
-        </button>
+      <p className="muted">Drop your receipts below, or click to browse. Mix PDFs and images freely — up to {MAX_FILES} files at once.</p>
+
+      <div
+        className={dropzoneClass}
+        onClick={() => !isUploading && uploadInputRef.current?.click()}
+        onDragOver={onDragOver}
+        onDragEnter={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && !isUploading && uploadInputRef.current?.click()}
+        aria-label="Upload bill files"
+      >
+        {isUploading ? (
+          <>
+            <Loader2 size={28} className="upload-spinner" style={{ animation: "spin 1s linear infinite" }} />
+            <span style={{ fontWeight: 600 }}>Parsing with AI…</span>
+            <span className="muted" style={{ fontSize: "0.85rem" }}>{statusText}</span>
+          </>
+        ) : (
+          <>
+            <UploadCloud size={28} style={{ color: "#4caf6e" }} />
+            <span style={{ fontWeight: 600 }}>
+              {isDragOver ? "Release to add files" : "Drop bills here, or click to browse"}
+            </span>
+            <span className="muted" style={{ fontSize: "0.85rem" }}>Images (JPG, PNG, WebP) and PDFs supported</span>
+          </>
+        )}
       </div>
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          if (files.length > 0) {
-            void handleFiles(files, "camera");
-          }
-        }}
-      />
+
       <input
         ref={uploadInputRef}
         type="file"
         accept="image/*,.pdf"
         multiple
         hidden
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          if (files.length > 0) {
-            void handleFiles(files, "upload");
-          }
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) addFiles(files);
+          e.target.value = "";
         }}
       />
-      {statusText ? (
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) void handleFiles(files, "camera");
+        }}
+      />
+
+      {pendingFiles.length > 0 ? (
+        <div className="file-preview-list">
+          {pendingFiles.map((file, i) => (
+            <div key={`${file.name}-${i}`} className="file-preview-item">
+              <span className="file-preview-icon">
+                {file.type === "application/pdf" ? <FileText size={18} /> : <ImageIcon size={18} />}
+              </span>
+              <span className="file-preview-name">{file.name}</span>
+              <span className="file-preview-size">{formatBytes(file.size)}</span>
+              <button
+                type="button"
+                className="file-preview-remove"
+                onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                aria-label={`Remove ${file.name}`}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="upload-actions">
+        <button
+          type="button"
+          className="chip chip-active"
+          disabled={pendingFiles.length === 0 || isUploading}
+          onClick={() => void handleFiles(pendingFiles)}
+        >
+          Parse {pendingFiles.length > 0 ? `${pendingFiles.length} ` : ""}Bill{pendingFiles.length !== 1 ? "s" : ""}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          onClick={() => cameraInputRef.current?.click()}
+          disabled={isUploading}
+          style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+        >
+          <Camera size={14} />
+          Scan with Camera
+        </button>
+      </div>
+
+      {statusText && !isUploading ? (
         <p
           className="muted"
           style={{
@@ -171,11 +273,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
           {statusText}
         </p>
       ) : null}
-      {lastFiles.length > 0 ? (
-        <p className="muted" style={{ marginTop: "0.4rem" }}>
-          Selected {lastFiles.length} file{lastFiles.length === 1 ? "" : "s"} (max {MAX_FILES})
-        </p>
-      ) : null}
+
       {batchResult && batchResult.successes.length > 1 ? (
         <div className="items-table" style={{ marginTop: "0.55rem" }}>
           {batchResult.successes.map((entry) => (
@@ -202,6 +300,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
           ))}
         </div>
       ) : null}
+
       {batchResult && batchResult.failures.length > 0 ? (
         <div style={{ marginTop: "0.55rem" }}>
           {batchResult.failures.map((failure) => (
@@ -211,11 +310,12 @@ export function BillUpload({ onParsed }: BillUploadProps) {
           ))}
         </div>
       ) : null}
+
       {error ? <p className="error">{error}</p> : null}
       {error ? (
         <div className="chip-row mobile-actions stack-mobile" style={{ marginTop: "0.55rem" }}>
-          {lastFiles.length > 0 ? (
-            <button type="button" className="chip mobile-full-width" onClick={() => void handleFiles(lastFiles)}>
+          {pendingFiles.length > 0 ? (
+            <button type="button" className="chip mobile-full-width" onClick={() => void handleFiles(pendingFiles)}>
               Try Again
             </button>
           ) : null}

@@ -104,6 +104,7 @@ export default function Home() {
     const fetchHistory = async () => {
       if (!householdId) return;
       const response = await fetch(`/api/bills/history?householdId=${householdId}`);
+      if (!response.ok) return;
       const json = await response.json();
       setHistory(json.bills ?? []);
     };
@@ -118,12 +119,18 @@ export default function Home() {
         fetch(`/api/activity/${householdId}`),
         fetch(`/api/analytics/${householdId}`),
       ]);
-      const ledgerJson = await ledgerRes.json();
-      const activityJson = await activityRes.json();
-      const analyticsJson = await analyticsRes.json();
-      setLedger(ledgerJson.ledger ?? null);
-      setActivity(activityJson.entries ?? []);
-      setAnalytics(analyticsJson.analytics ?? null);
+      if (ledgerRes.ok) {
+        const ledgerJson = await ledgerRes.json();
+        setLedger(ledgerJson.ledger ?? null);
+      }
+      if (activityRes.ok) {
+        const activityJson = await activityRes.json();
+        setActivity(activityJson.entries ?? []);
+      }
+      if (analyticsRes.ok) {
+        const analyticsJson = await analyticsRes.json();
+        setAnalytics(analyticsJson.analytics ?? null);
+      }
     };
     void fetchLedgerData();
   }, [householdId, history.length]);
