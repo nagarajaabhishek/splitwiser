@@ -87,7 +87,20 @@ export async function POST(request: Request) {
     const failures: Array<{ fileName: string; code: string; error: string }> = [];
 
     for (const file of files) {
-      const allowedMime = file.type.startsWith("image/") || file.type === "application/pdf";
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      const isHeic = ext === "heic" || ext === "heif" ||
+        file.type === "image/heic" || file.type === "image/heif";
+      if (isHeic) {
+        failures.push({
+          fileName: file.name,
+          code: "UPLOAD_UNSUPPORTED_MIME",
+          error: "HEIC_NOT_SUPPORTED",
+        });
+        continue;
+      }
+      // Chrome reports file.type="" for some formats; treat empty as allowed and let
+      // Gemini reject downstream if it truly can't parse the content.
+      const allowedMime = !file.type || file.type.startsWith("image/") || file.type === "application/pdf";
       if (!allowedMime) {
         failures.push({
           fileName: file.name,

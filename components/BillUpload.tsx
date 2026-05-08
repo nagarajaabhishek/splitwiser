@@ -29,7 +29,8 @@ export function BillUpload({ onParsed }: BillUploadProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const toFriendlyMessage = (message: string) => {
-    if (message.includes("UPLOAD_UNSUPPORTED_MIME")) return "Unsupported file type. Please upload an image or PDF.";
+    if (message.includes("HEIC_NOT_SUPPORTED")) return "HEIC photos aren't supported. In Photos tap Share → Save as JPEG, or screenshot the receipt.";
+    if (message.includes("UPLOAD_UNSUPPORTED_MIME")) return "Unsupported file type. Please upload a JPEG, PNG, or PDF.";
     if (message.includes("UPLOAD_FILE_TOO_LARGE")) return "This file is too large. Try a smaller image/PDF.";
     if (message.includes("VISION_ROUTER_FAILED")) return "Parser provider unavailable. You can retry or use demo parser.";
     return message;
@@ -190,7 +191,7 @@ export function BillUpload({ onParsed }: BillUploadProps) {
             <span style={{ fontWeight: 600 }}>
               {isDragOver ? "Release to add files" : "Drop bills here, or click to browse"}
             </span>
-            <span className="muted" style={{ fontSize: "0.85rem" }}>Images (JPG, PNG, WebP) and PDFs supported</span>
+            <span className="muted" style={{ fontSize: "0.85rem" }}>JPEG, PNG, WebP, PDF — not HEIC (convert in Photos first)</span>
           </>
         )}
       </div>
