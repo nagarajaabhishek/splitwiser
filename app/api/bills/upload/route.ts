@@ -3,18 +3,60 @@ import { billUploadBatchResponseSchema, billUploadResponseSchema } from "@/lib/s
 import { extractWithVisionRouter } from "@/lib/vision";
 import { normalizeDraftLabels } from "@/lib/vision/label-normalizer";
 import { verifyParsedDraft } from "@/lib/vision/verification";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+/* eslint-disable @typescript-eslint/no-require-imports */
 const heicConvert = require("heic-convert") as (opts: { buffer: Buffer; format: "JPEG"; quality: number }) => Promise<ArrayBuffer>;
+const sharp = require("sharp") as typeof import("sharp");
+/* eslint-enable @typescript-eslint/no-require-imports */
 
+// MIME types Gemini accepts natively — no conversion needed.
+const GEMINI_NATIVE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"]);
+// Non-image document types that can never be parsed as a receipt image.
+const DOCUMENT_TYPES = new Set([
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "text/csv",
+]);
+
+/**
+ * Converts unsupported image formats to JPEG so Gemini can process them.
+ * - HEIC/HEIF  → heic-convert (WASM, reliable cross-platform)
+ * - TIFF, BMP, AVIF, and any other image/* → sharp (already in the dep tree via Next.js)
+ * - Gemini-native formats (JPEG, PNG, WebP, GIF, PDF) pass through unchanged.
+ * Throws for document types that can never be receipt images.
+ */
 async function normalizeFileFormat(file: File): Promise<File> {
+  if (DOCUMENT_TYPES.has(file.type)) {
+    throw new Error("UPLOAD_UNSUPPORTED_MIME:document");
+  }
+
+  // Already natively supported — skip conversion.
+  if (GEMINI_NATIVE.has(file.type)) return file;
+
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  const isHeic = ext === "heic" || ext === "heif" ||
-    file.type === "image/heic" || file.type === "image/heif";
-  if (!isHeic) return file;
+  const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
+    ext === "heic" || ext === "heif";
+
   const inputBuffer = Buffer.from(await file.arrayBuffer());
-  const outputBuffer = await heicConvert({ buffer: inputBuffer, format: "JPEG", quality: 0.92 });
-  const jpegName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
-  return new File([outputBuffer], jpegName, { type: "image/jpeg" });
+
+  if (isHeic) {
+    const outputBuffer = await heicConvert({ buffer: inputBuffer, format: "JPEG", quality: 0.92 });
+    const jpegName = file.name.replace(/\.[^.]+$/, ".jpg");
+    return new File([outputBuffer], jpegName, { type: "image/jpeg" });
+  }
+
+  // For any other image/* (TIFF, BMP, AVIF, etc.), use sharp to convert to JPEG.
+  if (file.type.startsWith("image/")) {
+    const outputBuffer = await sharp(inputBuffer).jpeg({ quality: 92 }).toBuffer();
+    const ab = outputBuffer.buffer.slice(outputBuffer.byteOffset, outputBuffer.byteOffset + outputBuffer.byteLength) as ArrayBuffer;
+    const jpegName = file.name.replace(/\.[^.]+$/, ".jpg");
+    return new File([ab], jpegName, { type: "image/jpeg" });
+  }
+
+  // Empty type (Chrome sometimes omits it) — pass through and let Gemini decide.
+  return file;
 }
 
 const MAX_FILES = 10;
