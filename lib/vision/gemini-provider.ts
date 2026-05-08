@@ -59,10 +59,15 @@ export class GeminiVisionProvider implements VisionProvider {
     ];
     const bytes = Buffer.from(await file.arrayBuffer()).toString("base64");
 
+    const isPdf = file.type === "application/pdf";
     let response: Response | null = null;
     let lastError = "";
     for (const model of candidateModels) {
       // Try a model fallback chain since some accounts/regions do not expose all model ids.
+      // Parts order matters: file first, then instruction text (required for PDF inputs).
+      // responseMimeType:"application/json" is omitted for PDFs — some model/region combos
+      // reject it when the input is a document and fall through to a 400; the regex cleanup
+      // below handles free-form JSON output instead.
       response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
@@ -72,22 +77,23 @@ export class GeminiVisionProvider implements VisionProvider {
             contents: [
               {
                 parts: [
-                  { text: buildPrompt(merchantKey, Boolean(options?.retryMissingOnly), options?.knownLineHints ?? []) },
-                  { text: `Merchant template hint: ${merchantKey}` },
                   { inline_data: { mime_type: file.type || "application/octet-stream", data: bytes } },
+                  { text: `Merchant template hint: ${merchantKey}` },
+                  { text: buildPrompt(merchantKey, Boolean(options?.retryMissingOnly), options?.knownLineHints ?? []) },
                 ],
               },
             ],
             generationConfig: {
               temperature: 0.1,
-              responseMimeType: "application/json",
+              ...(isPdf ? {} : { responseMimeType: "application/json" }),
             },
           }),
         },
       );
 
       if (response.ok) break;
-      lastError = `model=${model},status=${response.status}`;
+      const errorBody = await response.text().catch(() => "");
+      lastError = `model=${model},status=${response.status},body=${errorBody.slice(0, 200)}`;
       if (response.status !== 404) break;
     }
 

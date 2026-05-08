@@ -9,6 +9,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ bills: [] });
   }
 
-  const bills = await listBillHistory(householdId);
-  return NextResponse.json({ bills });
+  try {
+    const bills = await listBillHistory(householdId);
+    return NextResponse.json({ bills });
+  } catch (err) {
+    console.error("[history] listBillHistory failed:", err);
+    return NextResponse.json({ bills: [], error: "Failed to load history." }, { status: 500 });
+  }
 }
